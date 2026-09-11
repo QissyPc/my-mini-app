@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1">
 <title>لودو 🎲</title>
 <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="telegram-web-app.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
   body{
@@ -97,6 +95,9 @@
     font-size:14px;padding:9px 22px;border-radius:12px;margin-top:10px;cursor:pointer;
     display:block;margin-inline:auto;
   }
+  #connBadge{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
+    background:rgba(180,40,40,.9);padding:6px 16px;border-radius:20px;
+    font-size:12px;display:none;z-index:5}
 </style>
 </head>
 <body>
@@ -116,7 +117,7 @@
   </div>
 </div>
 
-<!-- ========== لابی (اتاق انتظار) ========== -->
+<!-- ========== لابی ========== -->
 <div id="lobbyScreen" class="screen">
   <div class="topbar">اتاق بازی</div>
   <div class="codeBox" id="roomCodeBox" title="برای کپی بزن"></div>
@@ -169,22 +170,23 @@
   </div>
 </div>
 
+<div id="connBadge">⚠️ اتصال ضعیف — در تلاش برای اتصال...</div>
+
 <script>
 'use strict';
 
 /* ============ ۱) تنظیمات ============ */
-const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyDLLCUU-rzIBOz1efXj8ek6MrAQRUO_ruo",
-  authDomain:        "ludo-bot-2e848.firebaseapp.com",
-  databaseURL:       "https://ludo-bot-2e848-default-rtdb.firebaseio.com",
-  projectId:         "ludo-bot-2e848",
-  storageBucket:     "ludo-bot-2e848.firebasestorage.app",
-  messagingSenderId: "145268108630",
-  appId:             "1:145268108630:web:94b273b38f66bc1706faf7",
-};
-// ⚠️ این دو تا را باید خودت پر کنی (با دستور /newapp در BotFather):
+// ⚠️ آدرس ورکر Cloudflare خودت را بگذار (بدون / در انتها):
+const WORKER_URL = 'https://ludo-proxy.qissy-pc.workers.dev';
+// ⚠️ این دو تا را هم با /newapp در BotFather ست کن:
 const BOT_USERNAME = 'PVP_Ludo_bot'; // یوزرنیم ربات، بدون @
-const APP_SHORT    = 'ludo';    // اسم کوتاهی که در /newapp انتخاب می‌کنی
+const APP_SHORT    = 'ludo';    // اسم کوتاه اپ
+
+if (WORKER_URL.includes('YOUR-WORKER')) {
+  document.getElementById('menuScreen').innerHTML =
+    '<div class="card" style="text-align:center;line-height:2">⚙️ آدرس سرور (WORKER_URL) هنوز تنظیم نشده است.</div>';
+  throw new Error('WORKER_URL تنظیم نشده');
+}
 
 /* ============ تلگرام ============ */
 const tg = window.Telegram?.WebApp ?? {};
@@ -192,16 +194,34 @@ tg.ready?.(); tg.expand?.();
 const tgUser     = tg.initDataUnsafe?.user;
 const myId       = String(tgUser?.id ?? 'g' + Math.floor(Math.random() * 1e9));
 const myName     = (tgUser?.first_name || 'مهمان').slice(0, 14);
-const startParam = tg.initDataUnsafe?.start_param; // کد اتاق از لینک دعوت
+const startParam = tg.initDataUnsafe?.start_param;
 
-/* ============ فایربیس ============ */
-if (!window.firebase) {
-  document.getElementById('menuScreen').innerHTML =
-    '<div class="card" style="text-align:center;line-height:2">⚠️ اتصال به سرور برقرار نشد.<br>اینترنت را بررسی کنید و دوباره وارد شوید.</div>';
-  throw new Error('Firebase SDK لود نشد');
+/* ============ لایه اتصال (REST از طریق ورکر) ============ */
+const dbUrl  = path => WORKER_URL + '/db/' + path + '.json';
+const roomPath = p => 'rooms/' + roomCode + (p ? '/' + p : '');
+
+async function apiGet(path) {
+  const r = await fetch(dbUrl(path), { cache: 'no-store' });
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
 }
-firebase.initializeApp(FIREBASE_CONFIG);
-const db = firebase.database();
+async function apiPut(path, val) {
+  const r = await fetch(dbUrl(path), { method: 'PUT',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(val) });
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
+}
+async function apiPatch(path, val) {
+  const r = await fetch(dbUrl(path), { method: 'PATCH',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(val) });
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
+}
+async function apiDel(path) {
+  const r = await fetch(dbUrl(path), { method: 'DELETE' });
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
+}
 
 /* ============ ثابت‌های بازی ============ */
 const CELL = 40;
@@ -243,11 +263,12 @@ const PATH = [
 ];
 const SAFE = [0,8,13,21,26,34,39,47];
 const COLOR_ORDER = ['red','green','yellow','blue'];
+const faName = { red:'قرمز', green:'سبز', yellow:'زرد', blue:'آبی' };
 
 /* ============ عناصر ============ */
 const $ = id => document.getElementById(id);
 const svg = $('board'), statusText = $('statusText'), turnDot = $('turnDot');
-const diceEl = $('dice'), hintEl = $('hint');
+const diceEl = $('dice'), hintEl = $('hint'), connBadge = $('connBadge');
 const winOverlay = $('winOverlay'), winText = $('winText');
 const againBtn = $('againBtn'), closeWinBtn = $('closeWinBtn');
 
@@ -266,11 +287,11 @@ function showScreen(name) {
 /* ============ وضعیت ============ */
 const state = { tokens: {} };
 const names = {};
-let roomCode = null, roomRef = null, room = null, myColor = null;
+let roomCode = null, room = null, myColor = null;
 let phase = 'menu', legal = [];
 let handledMoveSeq = 0, remoteBusy = false;
 let passTimer = null, passDiceVal = null;
-let winSeen = false;
+let winSeen = false, pollTimer = null, failCount = 0;
 
 /* ============ رسم بورد ============ */
 function starPath(cx, cy, R, r) {
@@ -421,12 +442,17 @@ function genCode() {
 }
 
  $('createBtn').addEventListener('click', async () => {
-  const code = genCode();
-  await db.ref('rooms/' + code).set({
-    host: myId, createdAt: Date.now(), started: false,
-    players: { [myId]: { name: myName, color: 'red' } }
-  });
-  openRoom(code);
+  $('createBtn').disabled = true;
+  try {
+    const code = genCode();
+    await apiPut('rooms/' + code, {
+      host: myId, createdAt: Date.now(), started: false,
+      players: { [myId]: { name: myName, color: 'red' } }
+    });
+    openRoom(code);
+    pollNow();
+  } catch (e) { alert('خطا در ساخت اتاق — اتصال اینترنت را بررسی کنید'); }
+  $('createBtn').disabled = false;
 });
 
  $('joinBtn').addEventListener('click', () => joinRoomByCode($('joinCode').value));
@@ -437,33 +463,61 @@ function genCode() {
 async function joinRoomByCode(raw) {
   const code = (raw || '').trim().toUpperCase();
   if (code.length !== 5) return alert('کد اتاق ۵ حرفی است');
-  const snap = await db.ref('rooms/' + code).once('value');
-  const r = snap.val();
+  let r;
+  try { r = await apiGet('rooms/' + code); }
+  catch (e) { return alert('خطا در اتصال به سرور'); }
   if (!r) return alert('اتاقی با این کد پیدا نشد!');
-  if (!r.players[myId]) {
+  if (!r.players || !r.players[myId]) {
     if (r.started) return alert('این بازی شروع شده!');
-    if (Object.keys(r.players).length >= 4) return alert('اتاق پر است!');
-    const used = Object.values(r.players).map(p => p.color);
+    if (Object.keys(r.players || {}).length >= 4) return alert('اتاق پر است!');
+    const used = Object.values(r.players || {}).map(p => p.color);
     const color = COLOR_ORDER.find(c => !used.includes(c));
-    await db.ref(`rooms/${code}/players/${myId}`).set({ name: myName, color });
+    try {
+      await apiPatch(`rooms/${code}/players/${myId}`, { name: myName, color });
+    } catch (e) { return alert('خطا در ورود به اتاق'); }
   }
   openRoom(code);
+  pollNow();
 }
 
 function openRoom(code) {
-  if (roomRef) roomRef.off();
   roomCode = code;
   handledMoveSeq = 0;
   remoteBusy = false;
   winSeen = false;
+  failCount = 0;
+  connBadge.style.display = 'none';
   clearTimeout(passTimer); passDiceVal = null;
-  roomRef = db.ref('rooms/' + code);
-  roomRef.on('value', onRoomUpdate);
+  startPolling();
 }
 
-function leaveToMenu(msg) {
-  if (roomRef) roomRef.off();
-  roomRef = null; room = null; myColor = null; phase = 'menu';
+function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(pollNow, 1500);
+}
+
+async function pollNow() {
+  if (!roomCode || document.hidden) return;
+  try {
+    const data = await apiGet('rooms/' + roomCode);
+    failCount = 0;
+    connBadge.style.display = 'none';
+    onRoomData(data);
+  } catch (e) {
+    if (++failCount >= 4) connBadge.style.display = 'block';
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && roomCode) pollNow();
+});
+
+async function leaveToMenu(msg) {
+  stopPolling();
+  if (roomCode && room && !room.started)
+    apiDel('rooms/' + roomCode + '/players/' + myId).catch(() => {});
+  roomCode = null; room = null; myColor = null; phase = 'menu';
   showScreen('menu');
   if (msg) alert(msg);
 }
@@ -495,27 +549,32 @@ function inviteLink() {
 });
 
 /* ============ شروع بازی (فقط میزبان) ============ */
- $('startBtn').addEventListener('click', () => {
-  if (!room || room.host !== myId) return;
+ $('startBtn').addEventListener('click', async () => {
+  if (!room || room.host !== myId || room.started) return;
   const players = Object.values(room.players);
   if (players.length < 2) return;
   const order = COLOR_ORDER.filter(c => players.some(p => p.color === c));
   const tokens = {};
   order.forEach(c => tokens[c] = [-1,-1,-1,-1]);
-  roomRef.update({ started: true,
-    game: { turn: order[0], dice: null, order, tokens, lastMove: null, winner: null } });
+  try {
+    await apiPatch('rooms/' + roomCode, {
+      started: true,
+      game: { turn: order[0], dice: null, order, tokens, lastMove: null, winner: null }
+    });
+    pollNow();
+  } catch (e) { alert('خطا در شروع بازی'); }
 });
 
-/* ============ قلب برنامه: گوش دادن به اتاق ============ */
+/* ============ قلب برنامه: دریافت وضعیت اتاق ============ */
 function namesFromPlayers() {
   for (const p of Object.values(room.players || {})) names[p.color] = p.name;
 }
 
-function onRoomUpdate(snap) {
-  room = snap.val();
-  if (!room) return leaveToMenu('اتاق بسته شد');
+function onRoomData(data) {
+  if (!data) return leaveToMenu('اتاق بسته شد');
+  room = data;
   const me = (room.players || {})[myId];
-  if (!me) return leaveToMenu('دیگر در این اتاق نیستی');
+  if (!me) return; // هنوز در حال اضافه شدن
   myColor = me.color;
   namesFromPlayers();
 
@@ -582,10 +641,12 @@ function renderGame() {
 
   if (g.turn === myColor) {
     if (g.dice == null) {                       // نوبت من: تاس بنداز
-      if (phase !== 'rolling') phase = 'my-roll';
-      diceEl.classList.remove('disabled');
-      turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
-      statusText.innerHTML = 'نوبت توست — روی تاس بزن! 🎲';
+      if (phase !== 'rolling') {
+        phase = 'my-roll';
+        diceEl.classList.remove('disabled');
+        turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
+        statusText.innerHTML = 'نوبت توست — روی تاس بزن! 🎲';
+      }
     } else {                                    // تاس انداخته شده: حرکت کن
       if (phase !== 'my-move' && phase !== 'anim') {
         legal = computeLegal(myColor, g.dice);
@@ -608,7 +669,7 @@ function renderGame() {
     diceEl.classList.add('disabled');
     turnDot.style.background = turnDot.style.color = COLORS[g.turn].main;
     statusText.innerHTML =
-      `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn]}</b>`;
+      `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn] || faName[g.turn]}</b>`;
   }
 }
 
@@ -632,8 +693,10 @@ function schedulePass(diceVal) {
     if (!room) return;
     const g = room.game;
     if (g.turn === myColor && g.dice === diceVal && !g.winner) {
-      if (diceVal === 6) roomRef.child('game/dice').set(null);
-      else nextTurn();
+      const p = (diceVal === 6)
+        ? apiPatch(roomPath('game'), { dice: null })
+        : nextTurn();
+      Promise.resolve(p).then(() => pollNow()).catch(() => {});
     }
   }, 1300);
 }
@@ -653,7 +716,13 @@ diceEl.addEventListener('click', () => {
       diceEl.classList.remove('rolling');
       const val = 1 + Math.floor(Math.random() * 6);
       setDice(val);
-      roomRef.child('game/dice').set(val);
+      apiPatch(roomPath('game'), { dice: val })
+        .then(() => pollNow())
+        .catch(() => {
+          phase = 'my-roll';
+          diceEl.classList.remove('disabled');
+          hintEl.textContent = 'اتصال قطع شد — دوباره تلاش کن';
+        });
     }
   }, 85);
 });
@@ -698,35 +767,44 @@ async function onTokenClick(color, i) {
     tokens, dice: null,
     lastMove: { by: myId, color, i, from, to, hit, hitColor, seq: Date.now() },
   };
-  // نکته: با تاس ۶ نوبت دست‌نخورده می‌ماند → همان بازیکن دوباره می‌اندازد
+  // با تاس ۶ نوبت می‌ماند → همان بازیکن دوباره می‌اندازد
   if (won) upd.winner = color;
   else if (diceVal !== 6) {
     const order = room.game.order;
     upd.turn = order[(order.indexOf(room.game.turn) + 1) % order.length];
   }
-  await roomRef.child('game').update(upd);
+  try {
+    await apiPatch(roomPath('game'), upd);
+    pollNow();
+  } catch (e) { hintEl.textContent = 'خطا در ثبت حرکت!'; }
   phase = 'wait';
 }
 
 function nextTurn() {
   const order = room.game.order;
   const idx = order.indexOf(room.game.turn);
-  roomRef.child('game').update({ turn: order[(idx + 1) % order.length], dice: null });
+  return apiPatch(roomPath('game'),
+    { turn: order[(idx + 1) % order.length], dice: null });
 }
 
 /* ============ صفحه برنده ============ */
 function showWin(color) {
   phase = 'over';
   winText.innerHTML =
-    `<b style="color:${COLORS[color].lite}">${names[color]}</b> برنده شد! 🎉`;
+    `<b style="color:${COLORS[color].lite}">${names[color] || faName[color]}</b> برنده شد! 🎉`;
   againBtn.style.display = room.host === myId ? '' : 'none';
   winOverlay.classList.add('show');
 }
-againBtn.addEventListener('click', () => {
+againBtn.addEventListener('click', async () => {
   const order = room.game.order, tokens = {};
   order.forEach(c => tokens[c] = [-1,-1,-1,-1]);
-  roomRef.child('game').update({
-    turn: order[0], dice: null, tokens, lastMove: null, winner: null });
+  try {
+    await apiPatch(roomPath('game'),
+      { turn: order[0], dice: null, tokens, lastMove: null, winner: null });
+    winSeen = false;
+    winOverlay.classList.remove('show');
+    pollNow();
+  } catch (e) {}
 });
 closeWinBtn.addEventListener('click', () => {
   winSeen = true;
@@ -737,7 +815,6 @@ closeWinBtn.addEventListener('click', () => {
 drawBoard();
 setDice(6);
 showScreen('menu');
-// اگر با لینک دعوت آمده، خودکار وارد اتاق شو
 if (startParam) joinRoomByCode(startParam);
 </script>
 </body>
