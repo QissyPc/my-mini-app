@@ -51,11 +51,14 @@
     flex-shrink:0;box-shadow:0 0 8px currentColor;transition:background .3s}
   #statusText{font-size:13.5px;font-weight:bold;line-height:1.6}
   #hint{color:#a8bdd0;font-size:12px;margin-top:2px;min-height:15px;line-height:1.6}
+  #exitGameBtn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);
+    color:#ffb4a9;border-radius:10px;width:36px;height:36px;font-size:16px;
+    cursor:pointer;flex-shrink:0;margin-top:auto;margin-bottom:auto}
+  #exitGameBtn:active{transform:scale(.9)}
 
   #bottomBar{direction:ltr;width:min(94vw,470px);display:flex;align-items:center;
     gap:12px;margin-top:12px}
   #leftPanel{direction:rtl;flex:1;min-width:0}
-  /* لیست عمودی اسکرول‌دار — سازگار با گوشی‌های کوچیک */
   #playerCards{display:flex;flex-direction:column;gap:7px;
     max-height:min(178px,24vh);overflow-y:auto;padding-inline-end:4px;
     scrollbar-width:thin}
@@ -79,7 +82,6 @@
   .pcard.active .pmini{background:#fff}
 
   #diceBox{flex-shrink:0}
-  /* تاس بزرگ — هدف راحت برای انگشت شست */
   #dice{width:clamp(92px,27vw,116px);height:clamp(92px,27vw,116px);cursor:pointer;
     padding:7px;filter:drop-shadow(0 6px 12px rgba(0,0,0,.45));transition:transform .15s}
   #dice:active{transform:scale(.88)}
@@ -133,6 +135,9 @@
   #connBadge{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
     background:rgba(180,40,40,.9);padding:6px 16px;border-radius:20px;
     font-size:12px;display:none;z-index:5}
+  #afkBadge{position:fixed;top:10px;left:50%;transform:translateX(-50%);
+    background:rgba(214,140,25,.92);padding:7px 18px;border-radius:20px;
+    font-size:12px;display:none;z-index:6;max-width:92vw;text-align:center}
 </style>
 </head>
 <body>
@@ -172,16 +177,15 @@
 
   <svg id="board" viewBox="0 0 600 600"></svg>
 
-  <!-- راهنما: زیر تخته -->
   <div id="guideBar">
     <span id="turnDot"></span>
-    <div style="min-width:0">
+    <div style="min-width:0;flex:1">
       <div id="statusText"></div>
       <div id="hint"></div>
     </div>
+    <button id="exitGameBtn" title="خروج از بازی">🚪</button>
   </div>
 
-  <!-- پایین: چپ لیست بازیکن‌ها (اسکرول‌دار)، راست تاس -->
   <div id="bottomBar">
     <div id="leftPanel">
       <div id="playerCards"></div>
@@ -222,14 +226,15 @@
 </div>
 
 <div id="connBadge">⚠️ اتصال ضعیف — در تلاش برای اتصال...</div>
+<div id="afkBadge"></div>
 
 <script>
 'use strict';
 
 /* ============ ۱) تنظیمات ============ */
 const WORKER_URL = 'https://ludo-proxy.qissy-pc.workers.dev';
-const BOT_USERNAME = 'PVP_Ludo_bot'; // یوزرنیم ربات، بدون @
-const APP_SHORT    = 'ludo';         // اسم کوتاه اپ (/newapp)
+const BOT_USERNAME = 'PVP_Ludo_bot';
+const APP_SHORT    = 'ludo';
 
 if (WORKER_URL.includes('YOUR-WORKER')) {
   document.getElementById('menuScreen').innerHTML =
@@ -248,6 +253,9 @@ const startParam = tg.initDataUnsafe?.start_param;
 /* ============ لایه اتصال (REST از طریق ورکر) ============ */
 const dbUrl  = path => WORKER_URL + '/db/' + path + '.json';
 const roomPath = p => 'rooms/' + roomCode + (p ? '/' + p : '');
+const touch = () => roomCode
+  ? apiPatch(roomPath(''), { lastAct: Date.now() }).catch(() => {})
+  : Promise.resolve();
 
 async function apiGet(path) {
   const r = await fetch(dbUrl(path), { cache: 'no-store' });
@@ -315,10 +323,18 @@ const COLOR_ORDER = ['red','green','yellow','blue'];
 const faName  = { red:'قرمز', green:'سبز', yellow:'زرد', blue:'آبی' };
 const ON_COLOR = { red:'#fff', green:'#fff', yellow:'#4a3900', blue:'#fff' };
 
+/* آستانه‌های بی‌فعالیتی (میلی‌ثانیه) */
+const AFK_PASS   = 25000;   // رد خودکار نوبت بازیکن غایب
+const AFK_WARN   = 60000;   // هشدار
+const AFK_CLOSE  = 150000;  // بستن بازی
+const LOBBY_WARN = 8*60000;
+const LOBBY_CLOSE = 10*60000;
+
 /* ============ عناصر ============ */
 const $ = id => document.getElementById(id);
 const svg = $('board'), statusText = $('statusText'), turnDot = $('turnDot');
 const diceEl = $('dice'), hintEl = $('hint'), connBadge = $('connBadge');
+const afkBadge = $('afkBadge');
 const winOverlay = $('winOverlay'), winText = $('winText');
 const againBtn = $('againBtn'), closeWinBtn = $('closeWinBtn');
 
@@ -523,7 +539,7 @@ function genCode() {
   try {
     const code = genCode();
     await apiPut('rooms/' + code, {
-      host: myId, createdAt: Date.now(), started: false,
+      host: myId, createdAt: Date.now(), lastAct: Date.now(), started: false,
       players: { [myId]: { name: myName, color: 'red' } }
     });
     openRoom(code);
@@ -551,6 +567,9 @@ async function joinRoomByCode(raw) {
     const color = COLOR_ORDER.find(c => !used.includes(c));
     try {
       await apiPatch(`rooms/${code}/players/${myId}`, { name: myName, color });
+      await fetch(WORKER_URL + '/db/rooms/' + code + '.json', { method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ lastAct: Date.now() }) });
     } catch (e) { return alert('خطا در ورود به اتاق'); }
   }
   openRoom(code);
@@ -595,10 +614,19 @@ async function leaveToMenu(msg) {
   if (roomCode && room && !room.started)
     apiDel('rooms/' + roomCode + '/players/' + myId).catch(() => {});
   roomCode = null; room = null; myColor = null; phase = 'menu';
+  afkBadge.style.display = 'none';
   showScreen('menu');
   if (msg) alert(msg);
 }
  $('leaveBtn').addEventListener('click', () => leaveToMenu());
+
+/* خروج از بازی وسط بازی */
+ $('exitGameBtn').addEventListener('click', async () => {
+  if (!roomCode || !room || !room.started) return leaveToMenu();
+  if (!confirm('از بازی خارج می‌شوی؟ مهره‌هایت حذف خواهند شد.')) return;
+  try { await apiDel('rooms/' + roomCode + '/players/' + myId); } catch (e) {}
+  leaveToMenu();
+});
 
 /* ============ دعوت ============ */
 function inviteLink() {
@@ -635,7 +663,7 @@ function inviteLink() {
   order.forEach(c => tokens[c] = [-1,-1,-1,-1]);
   try {
     await apiPatch('rooms/' + roomCode, {
-      started: true,
+      started: true, lastAct: Date.now(),
       game: { turn: order[0], dice: null, order, tokens, lastMove: null, winner: null }
     });
     pollNow();
@@ -655,14 +683,18 @@ function onRoomData(data) {
   myColor = me.color;
   namesFromPlayers();
 
+  fixHostIfNeeded();
+  afkCheck();
+
   if (!room.started) { phase = 'lobby'; return showLobby(); }
 
   const g = room.game;
   state.tokens = g.tokens;
-
-  // وسط انیمیشن/تاس‌انداختن خودم؟ بعداً دوباره چک می‌شود
   if (phase === 'anim' || phase === 'rolling') return;
   if (remoteBusy) return;
+
+  // بازیکنی رفته؟ وضعیت را پاک‌سازی کن
+  if (cleanupDeparted()) return;
 
   // حرکت جدید حریف؟ انیمیشنش را پخش کن
   if (g.lastMove && g.lastMove.seq > handledMoveSeq) {
@@ -680,6 +712,38 @@ function onRoomData(data) {
     }
   }
   renderGame();
+}
+
+/* اگر میزبان رفته باشد، میزبانی به نفر بعدی منتقل می‌شود */
+function fixHostIfNeeded() {
+  if (room.started) return;
+  const ids = Object.keys(room.players || {});
+  if (!ids.length || ids.includes(room.host)) return;
+  if (ids[0] === myId)
+    apiPatch('rooms/' + roomCode, { host: myId }).catch(() => {});
+}
+
+/* حذف وضعیت بازیکنانی که از بازی خارج شده‌اند */
+function cleanupDeparted() {
+  const g = room.game;
+  if (!g || !g.order || g.winner) return false;
+  const active = new Set(Object.values(room.players || {}).map(p => p.color));
+  const dead = g.order.filter(c => !active.has(c));
+  if (!dead.length) return false;
+
+  const order = g.order.filter(c => active.has(c));
+  const tokens = JSON.parse(JSON.stringify(g.tokens || {}));
+  dead.forEach(c => delete tokens[c]);
+  const upd = { order, tokens };
+  if (!order.includes(g.turn)) { upd.turn = order[0]; upd.dice = null; }
+  if (order.length === 1) upd.winner = order[0];
+
+  dead.forEach(c => (tokenEls[c] || []).forEach(t => t.remove()));
+  dead.forEach(c => delete tokenEls[c]);
+
+  hintEl.textContent = 'یک بازیکن از بازی خارج شد';
+  apiPatch(roomPath('game'), upd).then(() => pollNow()).catch(() => {});
+  return true;
 }
 
 function showLobby() {
@@ -720,39 +784,39 @@ function renderGame() {
   winOverlay.classList.remove('show');
   winSeen = false;
 
+  // گوی و متن: همیشه نام و رنگِ بازیکنِ نوبت‌دار
+  turnDot.style.background = turnDot.style.color = COLORS[g.turn].main;
+  statusText.innerHTML = (g.turn === myColor)
+    ? `نوبت توست، <b style="color:${COLORS[myColor].lite}">${myName}</b>! 🎲`
+    : `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn] || faName[g.turn]}</b> است`;
+
   if (g.turn === myColor) {
     if (g.dice == null) {                       // نوبت من: تاس بنداز
       if (phase !== 'rolling') phase = 'my-roll';
+      hintEl.textContent = 'روی تاس بزن!';
     } else {                                    // تاس انداخته شده: حرکت کن
       if (phase !== 'my-move' && phase !== 'anim') {
         legal = computeLegal(myColor, g.dice);
         if (legal.length === 0) {
           phase = 'wait';
-          statusText.textContent = 'حرکتی ممکن نیست...';
+          hintEl.textContent = 'حرکتی ممکن نیست...';
           schedulePass(g.dice);
         } else {
           phase = 'my-move';
           clearHighlight();
           legal.forEach(m => tokenEls[myColor][m.i].classList.add('movable'));
-          statusText.innerHTML = `انداختی <b>${g.dice}</b> — مهره انتخاب کن`;
-          if (g.dice === 6) hintEl.textContent = 'با ۶ دوباره تاس می‌اندازی!';
+          hintEl.textContent = `تاس ${g.dice} آوردی — مهره انتخاب کن`;
         }
       }
     }
   } else {                                      // نوبت بقیه
     phase = 'wait';
     clearHighlight();
-    statusText.innerHTML =
-      `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn] || faName[g.turn]}</b>`;
+    hintEl.textContent = '';
   }
 
-  // تاس: فقط در نوبتِ تاس‌انداختنِ من فعال است
   diceEl.classList.toggle('myRoll', phase === 'my-roll');
   diceEl.classList.toggle('disabled', phase !== 'my-roll');
-  if (phase === 'my-roll') {
-    turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
-    statusText.innerHTML = 'نوبت توست — تاس بنداز! 🎲';
-  }
 }
 
 function computeLegal(color, d) {
@@ -799,13 +863,14 @@ diceEl.addEventListener('click', () => {
       diceEl.classList.remove('rolling');
       const val = 1 + Math.floor(Math.random() * 6);
       setDice(val);
-      apiPatch(roomPath('game'), { dice: val })
-        .then(() => pollNow())
-        .catch(() => {
-          phase = 'my-roll';
-          diceEl.classList.remove('disabled');
-          hintEl.textContent = 'اتصال قطع شد — دوباره تلاش کن';
-        });
+      Promise.all([
+        apiPatch(roomPath('game'), { dice: val }),
+        touch(),
+      ]).then(() => pollNow()).catch(() => {
+        phase = 'my-roll';
+        diceEl.classList.remove('disabled');
+        hintEl.textContent = 'اتصال قطع شد — دوباره تلاش کن';
+      });
     }
   }, 85);
 });
@@ -823,7 +888,6 @@ async function onTokenClick(color, i) {
   const tokens = JSON.parse(JSON.stringify(state.tokens));
   tokens[color][i] = to;
 
-  // خوردن مهره حریف
   let hit = false, hitColor = null;
   if (to >= 0 && to <= 50) {
     const abs = (COLORS[color].start + to) % 52;
@@ -857,6 +921,7 @@ async function onTokenClick(color, i) {
   }
   try {
     await apiPatch(roomPath('game'), upd);
+    touch();
     pollNow();
   } catch (e) { hintEl.textContent = 'خطا در ثبت حرکت!'; }
   phase = 'wait';
@@ -865,8 +930,56 @@ async function onTokenClick(color, i) {
 function nextTurn() {
   const order = room.game.order;
   const idx = order.indexOf(room.game.turn);
-  return apiPatch(roomPath('game'),
-    { turn: order[(idx + 1) % order.length], dice: null });
+  return Promise.all([
+    apiPatch(roomPath('game'), { turn: order[(idx + 1) % order.length], dice: null }),
+    touch(),
+  ]);
+}
+
+/* ============ سیستم بی‌فعالیتی (AFK) ============ */
+function afkCheck() {
+  if (!room || !roomCode) return;
+  const last = room.lastAct || room.createdAt || Date.now();
+  const stale = Date.now() - last;
+  afkBadge.style.display = 'none';
+
+  if (!room.started) {                           // لابی
+    if (stale > LOBBY_CLOSE) return tryCloseRoom('اتاق به دلیل بی‌فعالیتی بسته شد');
+    if (stale > LOBBY_WARN)
+      showAfk(`کسی نیامده — اتاق تا ${Math.ceil((LOBBY_CLOSE - stale) / 1000)} ثانیه دیگر بسته می‌شود`);
+    return;
+  }
+  const g = room.game;
+  if (!g || g.winner) return;
+
+  if (stale > AFK_CLOSE) return tryCloseRoom('بازی به دلیل بی‌فعالیتی بسته شد');
+  if (stale > AFK_WARN) {
+    showAfk(`بازی متوقف شده — تا ${Math.ceil((AFK_CLOSE - stale) / 1000)} ثانیه دیگر اتاق بسته می‌شود`);
+    return;
+  }
+  // رد خودکار نوبت بازیکن غایب: فقط نفر بعدیِ او این کار را می‌کند
+  if (g.turn !== myColor && stale > AFK_PASS) {
+    const i = g.order.indexOf(g.turn);
+    if (i >= 0 && g.order[(i + 1) % g.order.length] === myColor) {
+      Promise.all([
+        apiPatch(roomPath('game'), { turn: myColor, dice: null }),
+        touch(),
+      ]).then(() => pollNow()).catch(() => {});
+      hintEl.textContent = 'نوبت بازیکن غایب رد شد';
+    }
+  }
+}
+function showAfk(t) {
+  afkBadge.textContent = '⏳ ' + t;
+  afkBadge.style.display = 'block';
+}
+function tryCloseRoom(msg) {
+  const canClose = !room.started
+    || room.host === myId
+    || (room.game && room.game.turn === myColor)
+    || !room.players[room.host];
+  if (canClose) apiDel('rooms/' + roomCode).catch(() => {});
+  leaveToMenu(msg);
 }
 
 /* ============ صفحه برنده ============ */
@@ -883,6 +996,7 @@ againBtn.addEventListener('click', async () => {
   try {
     await apiPatch(roomPath('game'),
       { turn: order[0], dice: null, tokens, lastMove: null, winner: null });
+    touch();
     winSeen = false;
     winOverlay.classList.remove('show');
     pollNow();
