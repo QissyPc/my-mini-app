@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1">
-<title>لودو 🎲</title>
+<title>LUDO 🎲</title>
 <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
 <script src="telegram-web-app.js"></script>
 <style>
@@ -15,7 +15,7 @@
     display:flex;flex-direction:column;align-items:center;
     padding:10px 8px 18px;overflow-x:hidden;
   }
-  .topbar{font-size:20px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,.4)}
+  .topbar{font-size:20px;font-weight:bold;letter-spacing:2px;text-shadow:0 2px 8px rgba(0,0,0,.4)}
   .screen{display:none;flex-direction:column;align-items:center;width:100%;max-width:420px}
   .screen.active{display:flex}
   .card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
@@ -39,20 +39,47 @@
     border-radius:12px;padding:9px 12px;margin-top:8px;font-size:14px}
   .pdot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
   .crown{margin-inline-start:auto}
-  #status{
-    margin:8px 0 10px;background:rgba(255,255,255,.08);
-    border:1px solid rgba(255,255,255,.12);padding:7px 16px;
-    border-radius:30px;font-size:14px;min-height:34px;
-    display:flex;align-items:center;gap:8px;
+
+  /* ---------- صفحه بازی ---------- */
+  #board{width:min(94vw,470px,56vh);filter:drop-shadow(0 14px 30px rgba(0,0,0,.5))}
+  #guideBar{width:min(94vw,470px);display:flex;gap:9px;margin-top:10px;
+    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+    border-radius:14px;padding:9px 13px;min-height:48px}
+  #turnDot{width:11px;height:11px;border-radius:50%;background:#fff;margin-top:7px;
+    flex-shrink:0;box-shadow:0 0 8px currentColor;transition:background .3s}
+  #statusText{font-size:13.5px;font-weight:bold;line-height:1.6}
+  #hint{color:#a8bdd0;font-size:12px;margin-top:2px;min-height:15px;line-height:1.6}
+
+  #bottomBar{direction:ltr;width:min(94vw,470px);display:flex;align-items:flex-end;
+    justify-content:space-between;gap:12px;margin-top:12px}
+  #leftPanel{direction:rtl;flex:1;min-width:0}
+  #gameTitle{font-size:16px;font-weight:900;letter-spacing:5px;color:#e9f1f9;
+    text-align:center;text-shadow:0 2px 8px rgba(0,0,0,.45)}
+  #playerCards{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+  .pcard{
+    --pc:#888;--pl:#ccc;--pt:#fff;
+    display:flex;align-items:center;gap:7px;min-width:0;
+    background:rgba(255,255,255,.06);
+    border:1.5px solid var(--pc);border-radius:11px;padding:7px 9px;
+    font-size:12px;transition:background .25s,box-shadow .25s,transform .25s;
   }
-  #turnDot{width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 0 8px currentColor;flex-shrink:0}
-  #board{width:min(94vw,470px,58vh);filter:drop-shadow(0 14px 30px rgba(0,0,0,.5))}
-  #diceArea{margin-top:16px;display:flex;align-items:center;gap:16px}
-  #dice{width:72px;height:72px;cursor:pointer;padding:6px;
+  .pcard .pmini{width:11px;height:11px;border-radius:50%;background:var(--pc);
+    flex-shrink:0;box-shadow:0 0 0 2px rgba(255,255,255,.25);transition:background .25s}
+  .pcard .pname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#dfe9f3}
+  .pcard.active{
+    background:linear-gradient(135deg,var(--pc),var(--pl));
+    box-shadow:0 0 14px var(--pc);transform:translateY(-2px);border-color:transparent;
+  }
+  .pcard.active .pname{color:var(--pt);font-weight:bold}
+  .pcard.active .pmini{background:#fff}
+
+  #diceBox{flex-shrink:0}
+  #dice{width:78px;height:78px;cursor:pointer;padding:6px;
     filter:drop-shadow(0 6px 12px rgba(0,0,0,.45));transition:transform .15s}
   #dice:active{transform:scale(.88)}
-  #dice.disabled{opacity:.65;pointer-events:none}
-  #hint{color:#a8bdd0;font-size:13px;max-width:180px;line-height:1.8}
+  #dice.disabled{opacity:.55;pointer-events:none}
+  #dice.myRoll{animation:pulse 1.2s ease infinite}
+  @keyframes pulse{50%{filter:drop-shadow(0 0 15px rgba(255,255,255,.85));transform:scale(1.07)}}
   #pips circle{transition:opacity .12s}
   #dice.rolling{animation:shake .4s ease infinite}
   @keyframes shake{
@@ -67,6 +94,8 @@
   .token.movable{cursor:pointer}
   .token.movable .inner{animation:glow 1.1s ease-in-out infinite}
   @keyframes glow{50%{filter:drop-shadow(0 0 9px rgba(255,255,255,.95)) brightness(1.15)}}
+
+  /* ---------- صفحه برنده ---------- */
   #winOverlay{
     position:fixed;inset:0;background:rgba(10,16,23,.75);
     display:flex;align-items:center;justify-content:center;z-index:10;
@@ -104,7 +133,7 @@
 
 <!-- ========== منوی اصلی ========== -->
 <div id="menuScreen" class="screen active">
-  <div class="topbar">🎲 لودو</div>
+  <div class="topbar">🎲 LUDO</div>
   <div class="card">
     <div style="text-align:center;color:#a8bdd0;font-size:13px">
       با دوستانت از هر جای تلگرام بازی کن (۲ تا ۴ نفره)
@@ -133,30 +162,45 @@
 
 <!-- ========== بازی ========== -->
 <div id="gameScreen" class="screen">
-  <div id="status"><span id="turnDot"></span><span id="statusText"></span></div>
   <svg id="board" viewBox="0 0 600 600"></svg>
-  <div id="diceArea">
-    <div id="dice">
-      <svg viewBox="0 0 100 100">
-        <defs>
-          <linearGradient id="diceFace" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#ffffff"/>
-            <stop offset="1" stop-color="#d9d9d9"/>
-          </linearGradient>
-        </defs>
-        <rect x="3" y="3" width="94" height="94" rx="24" fill="url(#diceFace)" stroke="#bfbfbf" stroke-width="2"/>
-        <g id="pips" fill="#262626">
-          <circle id="p_c"  cx="50" cy="50" r="9.5"/>
-          <circle id="p_tl" cx="29" cy="29" r="9.5"/>
-          <circle id="p_tr" cx="71" cy="29" r="9.5"/>
-          <circle id="p_ml" cx="29" cy="50" r="9.5"/>
-          <circle id="p_mr" cx="71" cy="50" r="9.5"/>
-          <circle id="p_bl" cx="29" cy="71" r="9.5"/>
-          <circle id="p_br" cx="71" cy="71" r="9.5"/>
-        </g>
-      </svg>
+
+  <!-- راهنما: زیر تخته -->
+  <div id="guideBar">
+    <span id="turnDot"></span>
+    <div style="min-width:0">
+      <div id="statusText"></div>
+      <div id="hint"></div>
     </div>
-    <div id="hint"></div>
+  </div>
+
+  <!-- پایین: چپ کارت بازیکن‌ها، راست تاس -->
+  <div id="bottomBar">
+    <div id="leftPanel">
+      <div id="gameTitle">🎲 LUDO</div>
+      <div id="playerCards"></div>
+    </div>
+    <div id="diceBox">
+      <div id="dice">
+        <svg viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id="diceFace" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#ffffff"/>
+              <stop offset="1" stop-color="#d9d9d9"/>
+            </linearGradient>
+          </defs>
+          <rect x="3" y="3" width="94" height="94" rx="24" fill="url(#diceFace)" stroke="#bfbfbf" stroke-width="2"/>
+          <g id="pips" fill="#262626">
+            <circle id="p_c"  cx="50" cy="50" r="9.5"/>
+            <circle id="p_tl" cx="29" cy="29" r="9.5"/>
+            <circle id="p_tr" cx="71" cy="29" r="9.5"/>
+            <circle id="p_ml" cx="29" cy="50" r="9.5"/>
+            <circle id="p_mr" cx="71" cy="50" r="9.5"/>
+            <circle id="p_bl" cx="29" cy="71" r="9.5"/>
+            <circle id="p_br" cx="71" cy="71" r="9.5"/>
+          </g>
+        </svg>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -176,11 +220,9 @@
 'use strict';
 
 /* ============ ۱) تنظیمات ============ */
-// ⚠️ آدرس ورکر Cloudflare خودت را بگذار (بدون / در انتها):
 const WORKER_URL = 'https://ludo-proxy.qissy-pc.workers.dev';
-// ⚠️ این دو تا را هم با /newapp در BotFather ست کن:
 const BOT_USERNAME = 'PVP_Ludo_bot'; // یوزرنیم ربات، بدون @
-const APP_SHORT    = 'ludo';    // اسم کوتاه اپ
+const APP_SHORT    = 'ludo';         // اسم کوتاه اپ (/newapp)
 
 if (WORKER_URL.includes('YOUR-WORKER')) {
   document.getElementById('menuScreen').innerHTML =
@@ -263,7 +305,8 @@ const PATH = [
 ];
 const SAFE = [0,8,13,21,26,34,39,47];
 const COLOR_ORDER = ['red','green','yellow','blue'];
-const faName = { red:'قرمز', green:'سبز', yellow:'زرد', blue:'آبی' };
+const faName  = { red:'قرمز', green:'سبز', yellow:'زرد', blue:'آبی' };
+const ON_COLOR = { red:'#fff', green:'#fff', yellow:'#4a3900', blue:'#fff' }; // رنگ متن روی کارت فعال
 
 /* ============ عناصر ============ */
 const $ = id => document.getElementById(id);
@@ -348,9 +391,9 @@ function drawBoard() {
   svg.appendChild(el('rect',{x:240,y:240,width:120,height:120,rx:6,
                              fill:'none',stroke:'#c9bda1','stroke-width':2}));
   svg.appendChild(el('circle',{cx:300,cy:300,r:27,fill:'#fdfaf3',stroke:'#c9bda1','stroke-width':2}));
-  const logo = el('text',{x:300,y:307,'text-anchor':'middle','font-size':19,
-                          'font-weight':'bold',fill:'#8a7d5f'});
-  logo.textContent = 'لودو';
+  const logo = el('text',{x:300,y:306,'text-anchor':'middle','font-size':15,
+                          'font-weight':'bold','letter-spacing':'2',fill:'#8a7d5f'});
+  logo.textContent = 'LUDO';
   svg.appendChild(logo);
 }
 
@@ -431,6 +474,33 @@ function setDice(n) {
   const active = new Set(PIP_MAP[n]);
   document.querySelectorAll('#pips circle').forEach(c =>
     c.style.opacity = active.has(c.id) ? 1 : 0);
+}
+
+/* ============ کارت بازیکن‌ها ============ */
+const cardEls = {};
+function renderPlayerCards() {
+  const order = room.game.order;
+  const box = $('playerCards');
+  if (box.dataset.sig !== order.join(',')) {   // فقط وقتی ترکیب بازیکن‌ها عوض شد بساز
+    box.dataset.sig = order.join(',');
+    box.innerHTML = '';
+    for (const c of order) {
+      const o = COLORS[c];
+      const d = document.createElement('div');
+      d.className = 'pcard';
+      d.style.setProperty('--pc', o.main);
+      d.style.setProperty('--pl', o.lite);
+      d.style.setProperty('--pt', ON_COLOR[c]);
+      d.innerHTML = '<span class="pmini"></span><span class="pname"></span>';
+      cardEls[c] = d;
+      box.appendChild(d);
+    }
+  }
+  for (const c of order) {
+    cardEls[c].querySelector('.pname').textContent = names[c] || faName[c];
+    cardEls[c].classList.toggle('active',
+      room.game.turn === c && !room.game.winner);
+  }
 }
 
 /* ============ ساخت / ورود به اتاق ============ */
@@ -531,7 +601,7 @@ function inviteLink() {
   const link = inviteLink();
   if (tg.openTelegramLink) {
     tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) +
-      '&text=' + encodeURIComponent('🎲 بیا لودو بازی کنیم!'));
+      '&text=' + encodeURIComponent('🎲 بیا LUDO بازی کنیم!'));
   } else {
     navigator.clipboard?.writeText(link);
     alert('لینک دعوت کپی شد:\n' + link);
@@ -574,7 +644,7 @@ function onRoomData(data) {
   if (!data) return leaveToMenu('اتاق بسته شد');
   room = data;
   const me = (room.players || {})[myId];
-  if (!me) return; // هنوز در حال اضافه شدن
+  if (!me) return;
   myColor = me.color;
   namesFromPlayers();
 
@@ -582,6 +652,9 @@ function onRoomData(data) {
 
   const g = room.game;
   state.tokens = g.tokens;
+
+  // وسط انیمیشن/تاس‌اندازنِ خودم؟ صبر کن تموم شه (بعدش pollNow دوباره می‌گیره)
+  if (phase === 'anim' || phase === 'rolling') return;
   if (remoteBusy) return;
 
   // حرکت جدید حریف؟ انیمیشنش را پخش کن
@@ -630,6 +703,7 @@ function renderGame() {
   showScreen('game');
   const g = room.game;
   renderTokens();
+  renderPlayerCards();
   if (g.dice != null) setDice(g.dice);
 
   if (g.winner) {
@@ -641,12 +715,7 @@ function renderGame() {
 
   if (g.turn === myColor) {
     if (g.dice == null) {                       // نوبت من: تاس بنداز
-      if (phase !== 'rolling') {
-        phase = 'my-roll';
-        diceEl.classList.remove('disabled');
-        turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
-        statusText.innerHTML = 'نوبت توست — روی تاس بزن! 🎲';
-      }
+      if (phase !== 'rolling') phase = 'my-roll';
     } else {                                    // تاس انداخته شده: حرکت کن
       if (phase !== 'my-move' && phase !== 'anim') {
         legal = computeLegal(myColor, g.dice);
@@ -666,10 +735,17 @@ function renderGame() {
   } else {                                      // نوبت بقیه
     phase = 'wait';
     clearHighlight();
-    diceEl.classList.add('disabled');
-    turnDot.style.background = turnDot.style.color = COLORS[g.turn].main;
     statusText.innerHTML =
       `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn] || faName[g.turn]}</b>`;
+  }
+
+  // تاس: فقط در فاز my-roll فعال و نبض‌دار
+  diceEl.classList.toggle('myRoll', phase === 'my-roll');
+  diceEl.classList.toggle('disabled', phase !== 'my-roll');
+  if (phase === 'my-roll') {
+    diceEl.classList.remove('disabled');
+    turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
+    statusText.innerHTML = 'نوبت توست — تاس بنداز! 🎲';
   }
 }
 
@@ -707,6 +783,7 @@ diceEl.addEventListener('click', () => {
   phase = 'rolling';
   clearTimeout(passTimer); passDiceVal = null;
   hintEl.textContent = '';
+  diceEl.classList.remove('myRoll');
   diceEl.classList.add('rolling', 'disabled');
   let n = 0;
   const iv = setInterval(() => {
@@ -767,7 +844,6 @@ async function onTokenClick(color, i) {
     tokens, dice: null,
     lastMove: { by: myId, color, i, from, to, hit, hitColor, seq: Date.now() },
   };
-  // با تاس ۶ نوبت می‌ماند → همان بازیکن دوباره می‌اندازد
   if (won) upd.winner = color;
   else if (diceVal !== 6) {
     const order = room.game.order;
