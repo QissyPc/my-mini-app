@@ -1,1 +1,744 @@
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1">
+<title>لودو 🎲</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+  body{
+    min-height:100vh;
+    background:radial-gradient(900px 600px at 50% -100px,#2f5d8a,#17212b 65%);
+    font-family:'Vazirmatn',Tahoma,sans-serif;color:#fff;
+    display:flex;flex-direction:column;align-items:center;
+    padding:10px 8px 18px;overflow-x:hidden;
+  }
+  .topbar{font-size:20px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,.4)}
+  .screen{display:none;flex-direction:column;align-items:center;width:100%;max-width:420px}
+  .screen.active{display:flex}
+  .card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
+    border-radius:18px;padding:18px;width:100%;margin-top:12px}
+  .btn{font-family:inherit;border:none;border-radius:14px;padding:12px 18px;
+    font-size:15px;font-weight:bold;cursor:pointer;width:100%;margin-top:10px}
+  .btn.primary{background:linear-gradient(135deg,#3390ec,#1c6fd0);color:#fff;box-shadow:0 6px 16px rgba(51,144,236,.35)}
+  .btn.green{background:linear-gradient(135deg,#4caf50,#2e7d32);color:#fff}
+  .btn.ghost{background:rgba(255,255,255,.1);color:#cfe1f3}
+  .btn:active{transform:scale(.97)}
+  .btn:disabled{opacity:.45}
+  #joinRow{display:flex;gap:8px;width:100%;margin-top:10px}
+  #joinCode{flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+    border-radius:14px;color:#fff;font-family:inherit;font-size:16px;letter-spacing:4px;
+    text-align:center;padding:10px;text-transform:uppercase;outline:none;min-width:0}
+  .codeBox{display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;
+    background:rgba(0,0,0,.25);border-radius:12px;padding:10px;margin-top:12px;
+    font-size:22px;font-weight:bold;letter-spacing:8px}
+  .plist{margin-top:8px}
+  .prow{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.06);
+    border-radius:12px;padding:9px 12px;margin-top:8px;font-size:14px}
+  .pdot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
+  .crown{margin-inline-start:auto}
+  #status{
+    margin:8px 0 10px;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.12);padding:7px 16px;
+    border-radius:30px;font-size:14px;min-height:34px;
+    display:flex;align-items:center;gap:8px;
+  }
+  #turnDot{width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 0 8px currentColor;flex-shrink:0}
+  #board{width:min(94vw,470px,58vh);filter:drop-shadow(0 14px 30px rgba(0,0,0,.5))}
+  #diceArea{margin-top:16px;display:flex;align-items:center;gap:16px}
+  #dice{width:72px;height:72px;cursor:pointer;padding:6px;
+    filter:drop-shadow(0 6px 12px rgba(0,0,0,.45));transition:transform .15s}
+  #dice:active{transform:scale(.88)}
+  #dice.disabled{opacity:.65;pointer-events:none}
+  #hint{color:#a8bdd0;font-size:13px;max-width:180px;line-height:1.8}
+  #pips circle{transition:opacity .12s}
+  #dice.rolling{animation:shake .4s ease infinite}
+  @keyframes shake{
+    0%,100%{transform:rotate(0)}
+    25%{transform:rotate(-13deg) translateY(-7px)}
+    55%{transform:rotate(11deg) translateY(-3px)}
+    80%{transform:rotate(-6deg)}
+  }
+  .token{transition:transform .18s ease}
+  .token.hop .inner{animation:hop .19s ease}
+  @keyframes hop{45%{transform:translateY(-9px) scale(1.12)}}
+  .token.movable{cursor:pointer}
+  .token.movable .inner{animation:glow 1.1s ease-in-out infinite}
+  @keyframes glow{50%{filter:drop-shadow(0 0 9px rgba(255,255,255,.95)) brightness(1.15)}}
+  #winOverlay{
+    position:fixed;inset:0;background:rgba(10,16,23,.75);
+    display:flex;align-items:center;justify-content:center;z-index:10;
+    opacity:0;pointer-events:none;transition:opacity .4s;
+  }
+  #winOverlay.show{opacity:1;pointer-events:auto}
+  .winCard{
+    background:linear-gradient(160deg,#243447,#17212b);
+    border:1px solid rgba(255,255,255,.15);
+    padding:34px 46px;border-radius:24px;text-align:center;
+    transform:scale(.6);transition:transform .4s cubic-bezier(.2,1.6,.4,1);
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+  }
+  #winOverlay.show .winCard{transform:scale(1)}
+  .winEmoji{font-size:56px;animation:bounce 1s ease infinite alternate}
+  @keyframes bounce{to{transform:translateY(-12px)}}
+  #winText{font-size:19px;margin:12px 0 20px}
+  #againBtn{
+    background:linear-gradient(135deg,#3390ec,#1c6fd0);color:#fff;border:none;
+    font-family:inherit;font-size:15px;font-weight:bold;
+    padding:11px 30px;border-radius:14px;cursor:pointer;
+    box-shadow:0 6px 16px rgba(51,144,236,.4);
+  }
+  #closeWinBtn{
+    background:rgba(255,255,255,.1);color:#cfe1f3;border:none;font-family:inherit;
+    font-size:14px;padding:9px 22px;border-radius:12px;margin-top:10px;cursor:pointer;
+    display:block;margin-inline:auto;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== منوی اصلی ========== -->
+<div id="menuScreen" class="screen active">
+  <div class="topbar">🎲 لودو</div>
+  <div class="card">
+    <div style="text-align:center;color:#a8bdd0;font-size:13px">
+      با دوستانت از هر جای تلگرام بازی کن (۲ تا ۴ نفره)
+    </div>
+    <button class="btn primary" id="createBtn">➕ ساخت اتاق جدید</button>
+    <div id="joinRow">
+      <input id="joinCode" placeholder="کد اتاق" maxlength="5" autocomplete="off">
+      <button class="btn ghost" id="joinBtn" style="width:auto;margin:0">ورود</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== لابی (اتاق انتظار) ========== -->
+<div id="lobbyScreen" class="screen">
+  <div class="topbar">اتاق بازی</div>
+  <div class="codeBox" id="roomCodeBox" title="برای کپی بزن"></div>
+  <div style="font-size:12px;color:#8fa3b8;margin-top:4px">برای کپی روی کد بزن — این را به دوستانت بده</div>
+  <div class="card">
+    <div style="font-size:13px;color:#a8bdd0">بازیکن‌ها</div>
+    <div class="plist" id="plist"></div>
+    <button class="btn green" id="startBtn">▶️ شروع بازی</button>
+    <button class="btn primary" id="inviteBtn">📨 دعوت از طریق تلگرام</button>
+    <button class="btn ghost" id="leaveBtn">خروج از اتاق</button>
+  </div>
+</div>
+
+<!-- ========== بازی ========== -->
+<div id="gameScreen" class="screen">
+  <div id="status"><span id="turnDot"></span><span id="statusText"></span></div>
+  <svg id="board" viewBox="0 0 600 600"></svg>
+  <div id="diceArea">
+    <div id="dice">
+      <svg viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="diceFace" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffffff"/>
+            <stop offset="1" stop-color="#d9d9d9"/>
+          </linearGradient>
+        </defs>
+        <rect x="3" y="3" width="94" height="94" rx="24" fill="url(#diceFace)" stroke="#bfbfbf" stroke-width="2"/>
+        <g id="pips" fill="#262626">
+          <circle id="p_c"  cx="50" cy="50" r="9.5"/>
+          <circle id="p_tl" cx="29" cy="29" r="9.5"/>
+          <circle id="p_tr" cx="71" cy="29" r="9.5"/>
+          <circle id="p_ml" cx="29" cy="50" r="9.5"/>
+          <circle id="p_mr" cx="71" cy="50" r="9.5"/>
+          <circle id="p_bl" cx="29" cy="71" r="9.5"/>
+          <circle id="p_br" cx="71" cy="71" r="9.5"/>
+        </g>
+      </svg>
+    </div>
+    <div id="hint"></div>
+  </div>
+</div>
+
+<!-- ========== صفحه برنده ========== -->
+<div id="winOverlay">
+  <div class="winCard">
+    <div class="winEmoji">🏆</div>
+    <div id="winText"></div>
+    <button id="againBtn">🔄 بازی دوباره</button>
+    <button id="closeWinBtn">بستن</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ============ ۱) تنظیمات ============ */
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDLLCUU-rzIBOz1efXj8ek6MrAQRUO_ruo",
+  authDomain:        "ludo-bot-2e848.firebaseapp.com",
+  databaseURL:       "https://ludo-bot-2e848-default-rtdb.firebaseio.com",
+  projectId:         "ludo-bot-2e848",
+  storageBucket:     "ludo-bot-2e848.firebasestorage.app",
+  messagingSenderId: "145268108630",
+  appId:             "1:145268108630:web:94b273b38f66bc1706faf7",
+};
+// ⚠️ این دو تا را باید خودت پر کنی (با دستور /newapp در BotFather):
+const BOT_USERNAME = 'PVP_Ludo_bot'; // یوزرنیم ربات، بدون @
+const APP_SHORT    = 'ludo';    // اسم کوتاهی که در /newapp انتخاب می‌کنی
+
+/* ============ تلگرام ============ */
+const tg = window.Telegram?.WebApp ?? {};
+tg.ready?.(); tg.expand?.();
+const tgUser     = tg.initDataUnsafe?.user;
+const myId       = String(tgUser?.id ?? 'g' + Math.floor(Math.random() * 1e9));
+const myName     = (tgUser?.first_name || 'مهمان').slice(0, 14);
+const startParam = tg.initDataUnsafe?.start_param; // کد اتاق از لینک دعوت
+
+/* ============ فایربیس ============ */
+if (!window.firebase) {
+  document.getElementById('menuScreen').innerHTML =
+    '<div class="card" style="text-align:center;line-height:2">⚠️ اتصال به سرور برقرار نشد.<br>اینترنت را بررسی کنید و دوباره وارد شوید.</div>';
+  throw new Error('Firebase SDK لود نشد');
+}
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.database();
+
+/* ============ ثابت‌های بازی ============ */
+const CELL = 40;
+const px = v => v * CELL + 20;
+
+const COLORS = {
+  red:    { start:0,  base:{r:0,c:0},
+            home5:[[7,1],[7,2],[7,3],[7,4],[7,5]], end:[7,6.5],
+            anchors:[[1.5,1.5],[1.5,3.5],[3.5,1.5],[3.5,3.5]],
+            main:'#e53935', dark:'#b71c1c', lite:'#ff8a80' },
+  green:  { start:13, base:{r:0,c:9},
+            home5:[[1,7],[2,7],[3,7],[4,7],[5,7]], end:[6.5,7],
+            anchors:[[1.5,10.5],[1.5,12.5],[3.5,10.5],[3.5,12.5]],
+            main:'#43a047', dark:'#1b5e20', lite:'#81c784' },
+  yellow: { start:26, base:{r:9,c:9},
+            home5:[[7,13],[7,12],[7,11],[7,10],[7,9]], end:[7,7.5],
+            anchors:[[10.5,10.5],[10.5,12.5],[12.5,10.5],[12.5,12.5]],
+            main:'#fdd835', dark:'#f57f17', lite:'#fff59d' },
+  blue:   { start:39, base:{r:9,c:0},
+            home5:[[13,7],[12,7],[11,7],[10,7],[9,7]], end:[7.5,7],
+            anchors:[[10.5,1.5],[10.5,3.5],[12.5,1.5],[12.5,3.5]],
+            main:'#1e88e5', dark:'#0d47a1', lite:'#64b5f6' },
+};
+
+const PATH = [
+  [6,1],[6,2],[6,3],[6,4],[6,5],
+  [5,6],[4,6],[3,6],[2,6],[1,6],[0,6],
+  [0,7],
+  [0,8],[1,8],[2,8],[3,8],[4,8],[5,8],
+  [6,9],[6,10],[6,11],[6,12],[6,13],[6,14],
+  [7,14],
+  [8,14],[8,13],[8,12],[8,11],[8,10],[8,9],
+  [9,8],[10,8],[11,8],[12,8],[13,8],[14,8],
+  [14,7],
+  [14,6],[13,6],[12,6],[11,6],[10,6],[9,6],
+  [8,5],[8,4],[8,3],[8,2],[8,1],[8,0],
+  [7,0],
+  [6,0],
+];
+const SAFE = [0,8,13,21,26,34,39,47];
+const COLOR_ORDER = ['red','green','yellow','blue'];
+
+/* ============ عناصر ============ */
+const $ = id => document.getElementById(id);
+const svg = $('board'), statusText = $('statusText'), turnDot = $('turnDot');
+const diceEl = $('dice'), hintEl = $('hint');
+const winOverlay = $('winOverlay'), winText = $('winText');
+const againBtn = $('againBtn'), closeWinBtn = $('closeWinBtn');
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs = {}) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function showScreen(name) {
+  ['menu','lobby','game'].forEach(s =>
+    $(s + 'Screen').classList.toggle('active', s === name));
+}
+
+/* ============ وضعیت ============ */
+const state = { tokens: {} };
+const names = {};
+let roomCode = null, roomRef = null, room = null, myColor = null;
+let phase = 'menu', legal = [];
+let handledMoveSeq = 0, remoteBusy = false;
+let passTimer = null, passDiceVal = null;
+let winSeen = false;
+
+/* ============ رسم بورد ============ */
+function starPath(cx, cy, R, r) {
+  let d = '';
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? R : r;
+    const a = Math.PI * i / 5 - Math.PI / 2;
+    d += (i === 0 ? 'M' : 'L') + (cx + rad * Math.cos(a)).toFixed(2) + ' ' +
+         (cy + rad * Math.sin(a)).toFixed(2) + ' ';
+  }
+  return d + 'Z';
+}
+function drawBoard() {
+  const defs = el('defs');
+  svg.appendChild(defs);
+  for (const c in COLORS) {
+    const o = COLORS[c];
+    const g1 = el('linearGradient', {id:'grad-'+c, x1:0, y1:0, x2:0, y2:1});
+    [['0',o.lite],['.45',o.main],['1',o.dark]].forEach(([off,col]) =>
+      g1.appendChild(el('stop',{offset:off,'stop-color':col})));
+    defs.appendChild(g1);
+    const g2 = el('linearGradient', {id:'base-'+c, x1:0, y1:0, x2:0, y2:1});
+    [['0',o.lite],['1',o.dark]].forEach(([off,col]) =>
+      g2.appendChild(el('stop',{offset:off,'stop-color':col})));
+    defs.appendChild(g2);
+  }
+  svg.appendChild(el('rect',{x:0,y:0,width:600,height:600,rx:18,fill:'#f7efdd'}));
+  for (const c in COLORS) {
+    const o = COLORS[c];
+    const x = o.base.c * CELL, y = o.base.r * CELL;
+    svg.appendChild(el('rect',{x:x+4,y:y+4,width:232,height:232,rx:16,fill:`url(#base-${c})`}));
+    svg.appendChild(el('rect',{x:x+38,y:y+38,width:164,height:164,rx:14,
+                               fill:'#fdfaf3',stroke:'rgba(0,0,0,.12)'}));
+    o.anchors.forEach(a =>
+      svg.appendChild(el('circle',{cx:px(a[1]),cy:px(a[0]),r:16,fill:o.main,opacity:.22})));
+  }
+  PATH.forEach((p, i) => {
+    const [r, c] = p;
+    const sc = COLOR_ORDER.find(k => COLORS[k].start === i);
+    svg.appendChild(el('rect',{
+      x:c*CELL+1.5,y:r*CELL+1.5,width:CELL-3,height:CELL-3,rx:6,
+      fill: sc ? COLORS[sc].main : '#fffdf7', stroke:'#d9cdb4','stroke-width':1}));
+    if (SAFE.includes(i) && !sc)
+      svg.appendChild(el('path',{d:starPath(px(c),px(r),11,4.6),fill:'#e8b64c'}));
+  });
+  for (const c in COLORS)
+    COLORS[c].home5.forEach(h =>
+      svg.appendChild(el('rect',{x:h[1]*CELL+1.5,y:h[0]*CELL+1.5,
+        width:CELL-3,height:CELL-3,rx:6,fill:COLORS[c].main,stroke:'#fff','stroke-width':1.5})));
+  svg.appendChild(el('polygon',{points:'240,240 360,240 300,300',fill:COLORS.green.main}));
+  svg.appendChild(el('polygon',{points:'360,240 360,360 300,300',fill:COLORS.yellow.main}));
+  svg.appendChild(el('polygon',{points:'240,360 360,360 300,300',fill:COLORS.blue.main}));
+  svg.appendChild(el('polygon',{points:'240,240 240,360 300,300',fill:COLORS.red.main}));
+  svg.appendChild(el('rect',{x:240,y:240,width:120,height:120,rx:6,
+                             fill:'none',stroke:'#c9bda1','stroke-width':2}));
+  svg.appendChild(el('circle',{cx:300,cy:300,r:27,fill:'#fdfaf3',stroke:'#c9bda1','stroke-width':2}));
+  const logo = el('text',{x:300,y:307,'text-anchor':'middle','font-size':19,
+                          'font-weight':'bold',fill:'#8a7d5f'});
+  logo.textContent = 'لودو';
+  svg.appendChild(logo);
+}
+
+/* ============ مهره‌ها ============ */
+const tokenEls = {};
+function posOf(color, step, i) {
+  const o = COLORS[color];
+  if (step === -1) return o.anchors[i];
+  if (step === 56) return o.end;
+  if (step <= 50)  return PATH[(o.start + step) % 52];
+  return o.home5[step - 51];
+}
+function makeToken(color) {
+  const g = el('g', {class:'token'});
+  const inner = el('g', {class:'inner'});
+  inner.appendChild(el('ellipse',{cx:0,cy:7.5,rx:12.5,ry:4.2,fill:'rgba(0,0,0,.28)'}));
+  inner.appendChild(el('path',{
+    d:'M -10 7 C -10 1 -5 -1 -4 -5 L 4 -5 C 5 -1 10 1 10 7 Z',
+    fill:`url(#grad-${color})`,stroke:'rgba(0,0,0,.25)','stroke-width':.8}));
+  inner.appendChild(el('circle',{cx:0,cy:-9.5,r:7.6,
+    fill:`url(#grad-${color})`,stroke:'rgba(0,0,0,.25)','stroke-width':.8}));
+  inner.appendChild(el('ellipse',{cx:-2.4,cy:-12,rx:2.6,ry:1.7,fill:'rgba(255,255,255,.6)'}));
+  g.appendChild(inner);
+  return g;
+}
+function ensureTokens() {
+  for (const c of room.game.order) {
+    if (tokenEls[c]) continue;
+    tokenEls[c] = [];
+    for (let i = 0; i < 4; i++) {
+      const g = makeToken(c);
+      g.addEventListener('click', () => onTokenClick(c, i));
+      svg.appendChild(g);
+      tokenEls[c].push(g);
+    }
+  }
+}
+function renderTokens() {
+  ensureTokens();
+  const list = [];
+  for (const color in state.tokens)
+    state.tokens[color].forEach((s, i) => {
+      const [r, c] = posOf(color, s, i);
+      list.push({color, i, r, c});
+    });
+  const groups = {};
+  list.forEach(t => {
+    const k = t.r + ',' + t.c;
+    (groups[k] = groups[k] || []).push(t);
+  });
+  Object.values(groups).forEach(g => g.forEach((t, j) => {
+    const off = g.length > 1 ? (j - (g.length - 1) / 2) * 9 : 0;
+    tokenEls[t.color][t.i].style.transform =
+      `translate(${px(t.c) + off}px, ${px(t.r) + off}px)`;
+  }));
+}
+async function animateMove(color, i, from, to) {
+  const g = tokenEls[color][i];
+  for (let s = from + 1; s <= to; s++) {
+    const [r, c] = posOf(color, s, i);
+    g.style.transform = `translate(${px(c)}px, ${px(r)}px)`;
+    g.classList.remove('hop');
+    void g.getBoundingClientRect();
+    g.classList.add('hop');
+    await sleep(185);
+  }
+  g.classList.remove('hop');
+}
+
+/* ============ تاس ============ */
+const PIP_MAP = {
+  1:['p_c'], 2:['p_tl','p_br'], 3:['p_tl','p_c','p_br'],
+  4:['p_tl','p_tr','p_bl','p_br'],
+  5:['p_tl','p_tr','p_c','p_bl','p_br'],
+  6:['p_tl','p_ml','p_bl','p_tr','p_mr','p_br'],
+};
+function setDice(n) {
+  const active = new Set(PIP_MAP[n]);
+  document.querySelectorAll('#pips circle').forEach(c =>
+    c.style.opacity = active.has(c.id) ? 1 : 0);
+}
+
+/* ============ ساخت / ورود به اتاق ============ */
+function genCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+ $('createBtn').addEventListener('click', async () => {
+  const code = genCode();
+  await db.ref('rooms/' + code).set({
+    host: myId, createdAt: Date.now(), started: false,
+    players: { [myId]: { name: myName, color: 'red' } }
+  });
+  openRoom(code);
+});
+
+ $('joinBtn').addEventListener('click', () => joinRoomByCode($('joinCode').value));
+ $('joinCode').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinRoomByCode($('joinCode').value);
+});
+
+async function joinRoomByCode(raw) {
+  const code = (raw || '').trim().toUpperCase();
+  if (code.length !== 5) return alert('کد اتاق ۵ حرفی است');
+  const snap = await db.ref('rooms/' + code).once('value');
+  const r = snap.val();
+  if (!r) return alert('اتاقی با این کد پیدا نشد!');
+  if (!r.players[myId]) {
+    if (r.started) return alert('این بازی شروع شده!');
+    if (Object.keys(r.players).length >= 4) return alert('اتاق پر است!');
+    const used = Object.values(r.players).map(p => p.color);
+    const color = COLOR_ORDER.find(c => !used.includes(c));
+    await db.ref(`rooms/${code}/players/${myId}`).set({ name: myName, color });
+  }
+  openRoom(code);
+}
+
+function openRoom(code) {
+  if (roomRef) roomRef.off();
+  roomCode = code;
+  handledMoveSeq = 0;
+  remoteBusy = false;
+  winSeen = false;
+  clearTimeout(passTimer); passDiceVal = null;
+  roomRef = db.ref('rooms/' + code);
+  roomRef.on('value', onRoomUpdate);
+}
+
+function leaveToMenu(msg) {
+  if (roomRef) roomRef.off();
+  roomRef = null; room = null; myColor = null; phase = 'menu';
+  showScreen('menu');
+  if (msg) alert(msg);
+}
+ $('leaveBtn').addEventListener('click', () => leaveToMenu());
+
+/* ============ دعوت ============ */
+function inviteLink() {
+  return `https://t.me/${BOT_USERNAME}/${APP_SHORT}?startapp=${roomCode}`;
+}
+ $('inviteBtn').addEventListener('click', () => {
+  const link = inviteLink();
+  if (tg.openTelegramLink) {
+    tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(link) +
+      '&text=' + encodeURIComponent('🎲 بیا لودو بازی کنیم!'));
+  } else {
+    navigator.clipboard?.writeText(link);
+    alert('لینک دعوت کپی شد:\n' + link);
+  }
+});
+ $('roomCodeBox').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(roomCode); } catch (e) {}
+  const box = $('roomCodeBox');
+  box.textContent = 'کپی شد! ✓';
+  box.style.letterSpacing = '1px';
+  setTimeout(() => {
+    box.textContent = roomCode;
+    box.style.letterSpacing = '8px';
+  }, 900);
+});
+
+/* ============ شروع بازی (فقط میزبان) ============ */
+ $('startBtn').addEventListener('click', () => {
+  if (!room || room.host !== myId) return;
+  const players = Object.values(room.players);
+  if (players.length < 2) return;
+  const order = COLOR_ORDER.filter(c => players.some(p => p.color === c));
+  const tokens = {};
+  order.forEach(c => tokens[c] = [-1,-1,-1,-1]);
+  roomRef.update({ started: true,
+    game: { turn: order[0], dice: null, order, tokens, lastMove: null, winner: null } });
+});
+
+/* ============ قلب برنامه: گوش دادن به اتاق ============ */
+function namesFromPlayers() {
+  for (const p of Object.values(room.players || {})) names[p.color] = p.name;
+}
+
+function onRoomUpdate(snap) {
+  room = snap.val();
+  if (!room) return leaveToMenu('اتاق بسته شد');
+  const me = (room.players || {})[myId];
+  if (!me) return leaveToMenu('دیگر در این اتاق نیستی');
+  myColor = me.color;
+  namesFromPlayers();
+
+  if (!room.started) { phase = 'lobby'; return showLobby(); }
+
+  const g = room.game;
+  state.tokens = g.tokens;
+  if (remoteBusy) return;
+
+  // حرکت جدید حریف؟ انیمیشنش را پخش کن
+  if (g.lastMove && g.lastMove.seq > handledMoveSeq) {
+    handledMoveSeq = g.lastMove.seq;
+    const mv = g.lastMove;
+    if (mv.by !== myId) {
+      remoteBusy = true;
+      animateMove(mv.color, mv.i, mv.from, mv.to).then(() => {
+        remoteBusy = false;
+        renderTokens();
+        if (mv.hit && mv.hitColor === myColor) hintEl.textContent = 'مهره‌ات خورده شد! 😵';
+        renderGame();
+      });
+      return;
+    }
+  }
+  renderGame();
+}
+
+function showLobby() {
+  showScreen('lobby');
+  $('roomCodeBox').textContent = roomCode;
+  const entries = Object.entries(room.players);
+  let html = '';
+  for (const [uid, p] of entries) {
+    html += `<div class="prow">
+      <span class="pdot" style="background:${COLORS[p.color].main}"></span>
+      ${p.name}${room.host === uid ? '<span class="crown">👑</span>' : ''}</div>`;
+  }
+  $('plist').innerHTML = html;
+  const n = entries.length;
+  const isHost = room.host === myId;
+  $('startBtn').disabled = !isHost || n < 2;
+  $('startBtn').textContent = isHost
+    ? (n >= 2 ? '▶️ شروع بازی' : 'حداقل ۲ نفر لازم است')
+    : 'منتظر میزبان...';
+}
+
+/* ============ رندر وضعیت بازی ============ */
+function clearHighlight() {
+  document.querySelectorAll('.movable').forEach(e => e.classList.remove('movable'));
+}
+
+function renderGame() {
+  showScreen('game');
+  const g = room.game;
+  renderTokens();
+  if (g.dice != null) setDice(g.dice);
+
+  if (g.winner) {
+    if (!winSeen) showWin(g.winner);
+    return;
+  }
+  winOverlay.classList.remove('show');
+  winSeen = false;
+
+  if (g.turn === myColor) {
+    if (g.dice == null) {                       // نوبت من: تاس بنداز
+      if (phase !== 'rolling') phase = 'my-roll';
+      diceEl.classList.remove('disabled');
+      turnDot.style.background = turnDot.style.color = COLORS[myColor].main;
+      statusText.innerHTML = 'نوبت توست — روی تاس بزن! 🎲';
+    } else {                                    // تاس انداخته شده: حرکت کن
+      if (phase !== 'my-move' && phase !== 'anim') {
+        legal = computeLegal(myColor, g.dice);
+        if (legal.length === 0) {
+          phase = 'wait';
+          statusText.textContent = 'حرکتی ممکن نیست...';
+          schedulePass(g.dice);
+        } else {
+          phase = 'my-move';
+          clearHighlight();
+          legal.forEach(m => tokenEls[myColor][m.i].classList.add('movable'));
+          statusText.innerHTML = `انداختی <b>${g.dice}</b> — مهره انتخاب کن`;
+          if (g.dice === 6) hintEl.textContent = 'با ۶ دوباره تاس می‌اندازی!';
+        }
+      }
+    }
+  } else {                                      // نوبت بقیه
+    phase = 'wait';
+    clearHighlight();
+    diceEl.classList.add('disabled');
+    turnDot.style.background = turnDot.style.color = COLORS[g.turn].main;
+    statusText.innerHTML =
+      `نوبت <b style="color:${COLORS[g.turn].lite}">${names[g.turn]}</b>`;
+  }
+}
+
+function computeLegal(color, d) {
+  const moves = [];
+  state.tokens[color].forEach((s, i) => {
+    if (s === 56) return;
+    if (s === -1) { if (d === 6) moves.push({i, to:0}); return; }
+    if (s + d <= 56) moves.push({i, to:s + d});
+  });
+  return moves;
+}
+
+/* اگر بازیکنی حرکتی نداشت، نوبت بعد از ۱.۳ ثانیه رد می‌شود */
+function schedulePass(diceVal) {
+  if (passDiceVal === diceVal) return;
+  clearTimeout(passTimer);
+  passDiceVal = diceVal;
+  passTimer = setTimeout(() => {
+    passDiceVal = null;
+    if (!room) return;
+    const g = room.game;
+    if (g.turn === myColor && g.dice === diceVal && !g.winner) {
+      if (diceVal === 6) roomRef.child('game/dice').set(null);
+      else nextTurn();
+    }
+  }, 1300);
+}
+
+/* ============ انداختن تاس ============ */
+diceEl.addEventListener('click', () => {
+  if (phase !== 'my-roll') return;
+  phase = 'rolling';
+  clearTimeout(passTimer); passDiceVal = null;
+  hintEl.textContent = '';
+  diceEl.classList.add('rolling', 'disabled');
+  let n = 0;
+  const iv = setInterval(() => {
+    setDice(1 + Math.floor(Math.random() * 6));
+    if (++n === 9) {
+      clearInterval(iv);
+      diceEl.classList.remove('rolling');
+      const val = 1 + Math.floor(Math.random() * 6);
+      setDice(val);
+      roomRef.child('game/dice').set(val);
+    }
+  }, 85);
+});
+
+/* ============ حرکت مهره (بازیکن نوبت‌دار) ============ */
+async function onTokenClick(color, i) {
+  if (color !== myColor || phase !== 'my-move') return;
+  const mv = legal.find(m => m.i === i);
+  if (!mv) return;
+  phase = 'anim';
+  clearHighlight();
+
+  const diceVal = room.game.dice;
+  const from = state.tokens[color][i], to = mv.to;
+  const tokens = JSON.parse(JSON.stringify(state.tokens));
+  tokens[color][i] = to;
+
+  // خوردن مهره حریف
+  let hit = false, hitColor = null;
+  if (to >= 0 && to <= 50) {
+    const abs = (COLORS[color].start + to) % 52;
+    if (!SAFE.includes(abs)) {
+      for (const oc of room.game.order) {
+        if (oc === color) continue;
+        for (let k = 0; k < 4; k++) {
+          const s = tokens[oc][k];
+          if (s >= 0 && s <= 50 && (COLORS[oc].start + s) % 52 === abs) {
+            tokens[oc][k] = -1; hit = true; hitColor = oc;
+          }
+        }
+      }
+    }
+  }
+
+  await animateMove(color, i, from, to);
+  state.tokens = tokens;
+  renderTokens();
+  if (hit) hintEl.textContent = 'خوردی! 🎉';
+
+  const won = tokens[color].every(s => s === 56);
+  const upd = {
+    tokens, dice: null,
+    lastMove: { by: myId, color, i, from, to, hit, hitColor, seq: Date.now() },
+  };
+  // نکته: با تاس ۶ نوبت دست‌نخورده می‌ماند → همان بازیکن دوباره می‌اندازد
+  if (won) upd.winner = color;
+  else if (diceVal !== 6) {
+    const order = room.game.order;
+    upd.turn = order[(order.indexOf(room.game.turn) + 1) % order.length];
+  }
+  await roomRef.child('game').update(upd);
+  phase = 'wait';
+}
+
+function nextTurn() {
+  const order = room.game.order;
+  const idx = order.indexOf(room.game.turn);
+  roomRef.child('game').update({ turn: order[(idx + 1) % order.length], dice: null });
+}
+
+/* ============ صفحه برنده ============ */
+function showWin(color) {
+  phase = 'over';
+  winText.innerHTML =
+    `<b style="color:${COLORS[color].lite}">${names[color]}</b> برنده شد! 🎉`;
+  againBtn.style.display = room.host === myId ? '' : 'none';
+  winOverlay.classList.add('show');
+}
+againBtn.addEventListener('click', () => {
+  const order = room.game.order, tokens = {};
+  order.forEach(c => tokens[c] = [-1,-1,-1,-1]);
+  roomRef.child('game').update({
+    turn: order[0], dice: null, tokens, lastMove: null, winner: null });
+});
+closeWinBtn.addEventListener('click', () => {
+  winSeen = true;
+  winOverlay.classList.remove('show');
+});
+
+/* ============ شروع ============ */
+drawBoard();
+setDice(6);
+showScreen('menu');
+// اگر با لینک دعوت آمده، خودکار وارد اتاق شو
+if (startParam) joinRoomByCode(startParam);
+</script>
+</body>
+</html>
