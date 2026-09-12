@@ -83,13 +83,14 @@ body{
 
 /* بازی */
 #gameTitle{font-size:22px;font-weight:900;letter-spacing:11px;margin:4px 0 10px}
-#boardWrap{width:min(94vw,470px,58vh);filter:drop-shadow(0 24px 44px rgba(0,0,0,.55))}
+#boardWrap{width:min(94vw,470px,58vh);border-radius:28px;
+  box-shadow:0 24px 44px rgba(0,0,0,.55)}
 #board{display:block;width:100%;height:auto}
 
+/* نوار راهنما — بدون blur (بهینه‌سازی سرعت) */
 #guideBar{width:min(94vw,470px);display:flex;gap:10px;margin-top:12px;min-height:52px;
-  background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.04));
-  border:1px solid var(--stroke);border-radius:18px;padding:10px 13px;
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  background:rgba(13,20,32,.82);
+  border:1px solid var(--stroke);border-radius:18px;padding:10px 13px}
 #turnDot{width:12px;height:12px;border-radius:50%;background:#fff;margin-top:7px;
   flex-shrink:0;position:relative;transition:background .3s}
 #turnDot::after{content:'';position:absolute;inset:-4px;border-radius:50%;
@@ -165,7 +166,8 @@ body{
 #logoWrap .cube{animation:spinCube 8s linear infinite}
 @keyframes spinCube{from{transform:rotateX(-22deg) rotateY(0)}to{transform:rotateX(-22deg) rotateY(360deg)}}
 
-/* ---- مهره‌ها و افکت‌های SVG ---- */
+/* ---- مهره‌ها ----
+   نکته‌ی سرعت: هیچ انیمیشنی با filter نیست — فقط transform و opacity */
 .token{transition:transform .18s ease-out}
 .tbody,.tshadow,.selRing{transform-box:fill-box;transform-origin:center}
 .token.hop .tbody{animation:hop .2s cubic-bezier(.3,1.4,.5,1)}
@@ -173,15 +175,16 @@ body{
 .token.hop .tshadow{animation:hopSh .2s ease}
 @keyframes hopSh{45%{transform:scale(.55);opacity:.5}}
 .token.movable{cursor:pointer}
-.token.movable .tbody{animation:glowP 1.1s ease-in-out infinite}
-@keyframes glowP{50%{filter:drop-shadow(0 0 6px #fff) brightness(1.18)}}
+.token.movable .tbody{animation:glowP 1.15s ease-in-out infinite}
+@keyframes glowP{50%{transform:translateY(-3px) scale(1.08)}}
 .token.movable .selRing{opacity:1;animation:ringSpin 3.5s linear infinite}
 @keyframes ringSpin{to{transform:rotate(360deg)}}
 .spinR{animation:ringSpin 4s linear infinite}
 .twinkle{animation:tw 2.4s ease-in-out infinite}
 @keyframes tw{50%{opacity:.5}}
-svg .glow{animation:baseGlow 1.7s ease-in-out infinite}
-@keyframes baseGlow{50%{filter:drop-shadow(0 0 9px var(--bc)) drop-shadow(0 0 22px var(--bc))}}
+/* درخشش پایه‌ی نوبت‌دار: فقط opacity (ارزان) */
+svg .glowRect.on{animation:baseGlow 1.8s ease-in-out infinite}
+@keyframes baseGlow{50%{opacity:.7}}
 
 /* برنده */
 #winOverlay{position:fixed;inset:0;background:rgba(8,13,20,.7);z-index:10;
@@ -296,7 +299,7 @@ svg .glow{animation:baseGlow 1.7s ease-in-out infinite}
 <script>
 'use strict';
 
-/* ============ ۱) تنظیمات (دست نخورده) ============ */
+/* ============ ۱) تنظیمات (بدون تغییر) ============ */
 const WORKER_URL = 'https://ludo-proxy.qissy-pc.workers.dev';
 const BOT_USERNAME = 'PVP_Ludo_bot';
 const APP_SHORT    = 'ludo';
@@ -426,55 +429,71 @@ let handledMoveSeq = 0, remoteBusy = false;
 let passTimer = null, passDiceVal = null;
 let winSeen = false, pollTimer = null, failCount = 0;
 
-/* ============ پس‌زمینه متحرک (Canvas) ============ */
+/* ✅ فیکس باگ تاس: قفل زمانی + امضای رندر */
+let diceLockUntil = 0;      // تا ثبت تاس روی سرور، اجازه‌ی رول دوباره نده
+let lastRoomSig = '';       // اگر وضعیت سرور عوض نشده، رندر نکن
+let lastTokSig = '';        // اگر جای مهره‌ها عوض نشده، DOM را به‌روز نکن
+
+/* ============ پس‌زمینه (بهینه: سحابی pre-render + ۲۵fps) ============ */
 const bg = $('bg'), bctx = bg.getContext('2d');
 let bw, bh, blobs = [], stars = [];
+const neb = document.createElement('canvas');
+const nctx = neb.getContext('2d');
+let lastBgFrame = 0;
 const hexA = (h,a) => { const n = parseInt(h.slice(1),16);
   return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
+
 function sizeBg() {
   const dpr = Math.min(devicePixelRatio || 1, 2);
   bw = innerWidth; bh = innerHeight;
   bg.width = bw * dpr; bg.height = bh * dpr;
   bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  renderNebula();
+}
+/* سحابی فقط یک بار رندر می‌شود */
+function renderNebula() {
+  neb.width = bw; neb.height = bh;
+  const g = nctx.createLinearGradient(0, 0, 0, bh);
+  g.addColorStop(0, '#0d1523'); g.addColorStop(1, '#090e16');
+  nctx.fillStyle = g; nctx.fillRect(0, 0, bw, bh);
+  nctx.globalCompositeOperation = 'lighter';
+  for (const b of blobs) {
+    const x = b.x * bw, y = b.y * bh, rr = b.r * Math.max(bw, bh) * .75;
+    const rg = nctx.createRadialGradient(x, y, 0, x, y, rr);
+    rg.addColorStop(0, hexA(b.c, b.a)); rg.addColorStop(1, hexA(b.c, 0));
+    nctx.fillStyle = rg; nctx.fillRect(0, 0, bw, bh);
+  }
+  nctx.globalCompositeOperation = 'source-over';
 }
 function initBg() {
   sizeBg();
   blobs = [['#2b6fe0',.30],['#7b3ff2',.22],['#00b3a4',.18],['#e05fa0',.13]].map((b,i) =>
     ({ c:b[0], a:b[1], x:Math.random(), y:Math.random(),
        r:.45+Math.random()*.35, ph:i*1.8, sp:.35+Math.random()*.3 }));
-  stars = Array.from({length:70}, () =>
+  stars = Array.from({length:55}, () =>
     ({ x:Math.random(), y:Math.random(), r:Math.random()*1.3+.3,
        tw:Math.random()*7, sp:.4+Math.random()*.8 }));
+  renderNebula();
   requestAnimationFrame(drawBg);
 }
 function drawBg(t) {
-  if (!document.hidden) {
-    const s = t / 1000;
-    const g = bctx.createLinearGradient(0, 0, 0, bh);
-    g.addColorStop(0, '#0d1523'); g.addColorStop(1, '#090e16');
-    bctx.fillStyle = g; bctx.fillRect(0, 0, bw, bh);
-    bctx.globalCompositeOperation = 'lighter';
-    for (const b of blobs) {
-      const x = (b.x + Math.sin(s * b.sp + b.ph) * .16) * bw;
-      const y = (b.y + Math.cos(s * b.sp * .8 + b.ph) * .14) * bh;
-      const rr = b.r * Math.max(bw, bh) * .75;
-      const rg = bctx.createRadialGradient(x, y, 0, x, y, rr);
-      rg.addColorStop(0, hexA(b.c, b.a)); rg.addColorStop(1, hexA(b.c, 0));
-      bctx.fillStyle = rg; bctx.fillRect(0, 0, bw, bh);
-    }
-    bctx.globalCompositeOperation = 'source-over';
-    for (const st of stars) {
-      bctx.globalAlpha = .2 + .55 * Math.abs(Math.sin(s * st.sp + st.tw));
-      bctx.fillStyle = '#cfe4ff';
-      bctx.beginPath(); bctx.arc(st.x * bw, st.y * bh, st.r, 0, 7); bctx.fill();
-    }
-    bctx.globalAlpha = 1;
-  }
   requestAnimationFrame(drawBg);
+  if (document.hidden) return;
+  if (t - lastBgFrame < 40) return;   // سقف ۲۵ فریم — کافی و سبک
+  lastBgFrame = t;
+  bctx.clearRect(0, 0, bw, bh);
+  bctx.drawImage(neb, 0, 0, bw, bh);
+  const s = t / 1000;
+  bctx.fillStyle = '#cfe4ff';
+  for (const st of stars) {
+    bctx.globalAlpha = .15 + .5 * Math.abs(Math.sin(s * st.sp + st.tw));
+    bctx.beginPath(); bctx.arc(st.x * bw, st.y * bh, st.r, 0, 7); bctx.fill();
+  }
+  bctx.globalAlpha = 1;
 }
 addEventListener('resize', () => { sizeBg(); if (confRun) confResize(); });
 
-/* ============ صداهای کوچک (WebAudio — بدون فایل) ============ */
+/* ============ صداها (WebAudio — بدون تغییر) ============ */
 let actx = null, muted = localStorage.getItem('ludo_mute') === '1';
 function ac() {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
@@ -540,8 +559,8 @@ function snapDice(v) {
   void cubeEl.offsetWidth; cubeEl.style.transition = '';
   shownVal = v;
 }
-function setDice(v) {
-  if (v === shownVal) return;
+function setDice(v, force) {
+  if (v === shownVal && !force) return;
   const [tx, ty] = ORI[v];
   rx = tx + 360 * Math.ceil((rx + 360 - tx) / 360);
   ry = ty + 360 * Math.ceil((ry + 360 - ty) / 360);
@@ -559,10 +578,10 @@ function starPath(cx, cy, R, r) {
   }
   return d + 'Z';
 }
-let baseEls = {}, ringsLayer = null, fxLayer = null;
+let glowEls = {}, ringsLayer = null, fxLayer = null;
 
 function drawBoard() {
-  svg.innerHTML = ''; baseEls = {};
+  svg.innerHTML = ''; glowEls = {};
   const defs = el('defs');
 
   for (const c of COLOR_ORDER) {
@@ -580,6 +599,12 @@ function drawBoard() {
     bgd.append(el('stop',{offset:'0','stop-color':o.main}),
                el('stop',{offset:'1','stop-color':o.dark}));
     defs.appendChild(bgd);
+    /* هاله‌ی پایه — به‌جای انیمیشنِ filter، فقط opacity انیمیت می‌شود */
+    const gg = el('radialGradient', {id:'glowg-'+c, cx:'50%', cy:'50%', r:'70%'});
+    gg.append(el('stop',{offset:'0','stop-color':o.main,'stop-opacity':'.85'}),
+              el('stop',{offset:'.6','stop-color':o.main,'stop-opacity':'.32'}),
+              el('stop',{offset:'1','stop-color':o.main,'stop-opacity':'0'}));
+    defs.appendChild(gg);
   }
   const paper = el('radialGradient', {id:'paper', cx:'50%', cy:'42%', r:'78%'});
   paper.append(el('stop',{offset:'0','stop-color':'#fdf8ea'}),
@@ -599,13 +624,6 @@ function drawBoard() {
   const sh = el('filter', {id:'fSh', x:'-40%', y:'-40%', width:'180%', height:'180%'});
   sh.appendChild(el('feDropShadow',{dx:0, dy:3, stdDeviation:3, 'flood-color':'rgba(60,40,10,.35)'}));
   defs.appendChild(sh);
-  const glow = el('filter', {id:'fGlow', x:'-60%', y:'-60%', width:'220%', height:'220%'});
-  glow.appendChild(el('feGaussianBlur',{stdDeviation:3.5, result:'b'}));
-  const m = el('feMerge');
-  m.appendChild(el('feMergeNode',{in:'b'}));
-  m.appendChild(el('feMergeNode',{in:'SourceGraphic'}));
-  glow.appendChild(m);
-  defs.appendChild(glow);
   const grain = el('filter', {id:'grain'});
   grain.appendChild(el('feTurbulence',{type:'fractalNoise', baseFrequency:'0.9', numOctaves:'2', result:'n'}));
   grain.appendChild(el('feColorMatrix',{in:'n', type:'matrix',
@@ -613,7 +631,6 @@ function drawBoard() {
   defs.appendChild(grain);
   svg.appendChild(defs);
 
-  // قاب متالیک + کاغذ
   svg.appendChild(el('rect',{x:0, y:0, width:600, height:600, rx:28, fill:'url(#metal)'}));
   svg.appendChild(el('rect',{x:8, y:8, width:584, height:584, rx:22,
                              fill:'url(#paper)', stroke:'rgba(0,0,0,.25)'}));
@@ -621,12 +638,15 @@ function drawBoard() {
   svg.appendChild(el('rect',{x:14, y:14, width:572, height:572, rx:18,
                              fill:'none', stroke:'rgba(255,255,255,.5)', 'stroke-width':1}));
 
-  // پایه‌ها
   for (const c of COLOR_ORDER) {
     const o = COLORS[c];
     const g = el('g');
-    g.style.setProperty('--bc', o.main);
     const x = o.base.c * CELL, y = o.base.r * CELL;
+    /* هاله (زیر همه) — کلاس on فقط opacity را پالس می‌دهد */
+    const glowR = el('rect',{x:x-10, y:y-10, width:252, height:252, rx:34,
+                             fill:`url(#glowg-${c})`, opacity:0, class:'glowRect'});
+    g.appendChild(glowR);
+    glowEls[c] = glowR;
     g.appendChild(el('rect',{x:x+6, y:y+6, width:228, height:228, rx:26,
                              fill:`url(#baseg-${c})`, filter:'url(#fSh)'}));
     g.appendChild(el('rect',{x:x+34, y:y+34, width:172, height:172, rx:20,
@@ -640,11 +660,9 @@ function drawBoard() {
                                  stroke:'rgba(0,0,0,.28)', 'stroke-width':1, filter:'url(#fSh)'}));
       g.appendChild(el('ellipse',{cx:cx-3.5, cy:cy-5, rx:4.5, ry:3, fill:'rgba(255,255,255,.8)'}));
     });
-    baseEls[c] = g;
     svg.appendChild(g);
   }
 
-  // خانه‌های مسیر
   PATH.forEach((p, i) => {
     const [r, c] = p;
     const sc = COLOR_ORDER.find(k => COLORS[k].start === i);
@@ -659,11 +677,10 @@ function drawBoard() {
       svg.appendChild(el('rect',{...common, fill:'url(#cellBg)', stroke:'#dbcda8', 'stroke-width':1}));
       if (SAFE.includes(i))
         svg.appendChild(el('path',{class:'twinkle', d:starPath(px(c), px(r), 11, 4.6),
-          fill:'#e6b23f', stroke:'#c08e1d', 'stroke-width':.8, filter:'url(#fGlow)'}));
+          fill:'#e6b23f', stroke:'#c08e1d', 'stroke-width':.8}));
     }
   });
 
-  // مسیرهای خانه
   for (const c of COLOR_ORDER) {
     COLORS[c].home5.forEach(h => {
       svg.appendChild(el('rect',{x:h[1]*CELL+2, y:h[0]*CELL+2, width:CELL-4, height:CELL-4,
@@ -673,7 +690,6 @@ function drawBoard() {
     });
   }
 
-  // مرکز
   const tri = (pts, c) => svg.appendChild(el('polygon',{points:pts,
     fill:`url(#lg-${c})`, stroke:'rgba(0,0,0,.18)', 'stroke-width':1}));
   tri('242,242 358,242 300,300','green');
@@ -731,27 +747,29 @@ function ensureTokens() {
       svg.insertBefore(g, fxLayer);
       tokenEls[c].push(g);
     }
+    lastTokSig = '';
   }
 }
+/* ✅ بهینه: فقط وقتی جای مهره‌ها واقعاً عوض شده DOM را به‌روز کن */
 function renderTokens() {
   ensureTokens();
-  const list = [];
+  const groups = {};
   for (const color in state.tokens)
     state.tokens[color].forEach((s, i) => {
       const [r, c] = posOf(color, s, i);
-      list.push({color, i, r, c});
+      const k = r + ',' + c;
+      (groups[k] = groups[k] || []).push({color, i, r, c});
     });
-  const groups = {};
-  list.forEach(t => {
-    const k = t.r + ',' + t.c;
-    (groups[k] = groups[k] || []).push(t);
-  });
   const flat = [];
-  Object.values(groups).forEach(g => g.forEach((t, j) => {
-    const off = g.length > 1 ? (j - (g.length - 1) / 2) * 9 : 0;
+  let sig = '';
+  Object.keys(groups).sort().forEach(k => groups[k].forEach((t, j) => {
+    const off = groups[k].length > 1 ? (j - (groups[k].length - 1) / 2) * 9 : 0;
     t.x = px(t.c) + off; t.y = px(t.r) + off;
+    sig += t.color + t.i + Math.round(t.x) + ',' + Math.round(t.y) + ';';
     flat.push(t);
   }));
+  if (sig === lastTokSig) return;
+  lastTokSig = sig;
   flat.sort((a, b) => a.r - b.r || a.c - b.c)
       .forEach(t => {
         const gEl = tokenEls[t.color][t.i];
@@ -760,7 +778,8 @@ function renderTokens() {
       });
 }
 async function animateMove(color, i, from, to) {
-  const g = tokenEls[color][i];
+  const g = tokenEls[color] && tokenEls[color][i];
+  if (!g) return;
   svg.insertBefore(g, fxLayer);
   for (let s = from + 1; s <= to; s++) {
     const [r, c] = posOf(color, s, i);
@@ -773,7 +792,6 @@ async function animateMove(color, i, from, to) {
   g.classList.remove('hop');
 }
 
-/* افکت انفجار هنگام زدن مهره */
 function burst(r, c, color) {
   if (!fxLayer) return;
   const cx = px(c), cy = px(r), col = COLORS[color]?.lite || '#fff';
@@ -793,7 +811,6 @@ function burst(r, c, color) {
   }
 }
 
-/* حلقه‌ی هدف زیر مهره‌های قابل حرکت */
 function clearRings() { if (ringsLayer) ringsLayer.innerHTML = ''; }
 function showRings(moves, color) {
   clearRings();
@@ -839,7 +856,7 @@ function renderPlayerCards() {
   }
 }
 
-/* ============ ساخت / ورود به اتاق ============ */
+/* ============ ساخت / ورود به اتاق (بدون تغییر) ============ */
 function genCode() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   let s = '';
@@ -896,6 +913,9 @@ function openRoom(code) {
   remoteBusy = false;
   winSeen = false;
   failCount = 0;
+  diceLockUntil = 0;
+  lastRoomSig = '';
+  lastTokSig = '';
   connBadge.style.display = 'none';
   clearTimeout(passTimer); passDiceVal = null;
   startPolling();
@@ -1009,6 +1029,7 @@ function onRoomData(data) {
     if (mv.by !== myId) {
       remoteBusy = true;
       clearRings();
+      ensureTokens();
       animateMove(mv.color, mv.i, mv.from, mv.to).then(() => {
         remoteBusy = false;
         if (mv.hit) {
@@ -1018,11 +1039,24 @@ function onRoomData(data) {
           if (mv.hitColor === myColor) hintEl.textContent = 'مهره‌ات خورده شد! 😵';
         }
         renderTokens();
+        lastRoomSig = '';
+        renderGame();
+      }).catch(() => {
+        remoteBusy = false;
+        renderTokens();
+        lastRoomSig = '';
         renderGame();
       });
       return;
     }
   }
+
+  /* ✅ اگر وضعیت سرور با قبلی یکسان است، رندر اضافه نکن
+     (به‌جز وقتی نوبت ماست و تاس هنوز null است — برای بازیابی از قفل) */
+  const sig = JSON.stringify([g.turn, g.dice, g.winner, g.tokens, g.order,
+    g.lastMove ? g.lastMove.seq : 0, room.host, room.started, room.players]);
+  if (sig === lastRoomSig && !(g.turn === myColor && g.dice == null)) return;
+  lastRoomSig = sig;
   renderGame();
 }
 
@@ -1050,6 +1084,8 @@ function cleanupDeparted() {
 
   dead.forEach(c => (tokenEls[c] || []).forEach(t => t.remove()));
   dead.forEach(c => delete tokenEls[c]);
+  lastTokSig = '';
+  lastRoomSig = '';
 
   hintEl.textContent = 'یک بازیکن از بازی خارج شد';
   apiPatch(roomPath('game'), upd).then(() => pollNow()).catch(() => {});
@@ -1089,10 +1125,13 @@ function renderGame() {
   const g = room.game;
   renderTokens();
   renderPlayerCards();
-  if (g.dice != null) setDice(g.dice);
+  if (g.dice != null) {
+    setDice(g.dice);
+    diceLockUntil = 0;              // ✅ تاس روی سرور ثبت شد — قفل برداشته می‌شود
+  }
 
   for (const c of COLOR_ORDER)
-    baseEls[c]?.classList.toggle('glow', g.turn === c && !g.winner);
+    glowEls[c]?.classList.toggle('on', g.turn === c && !g.winner);
 
   if (g.winner) {
     if (!winSeen) showWin(g.winner);
@@ -1108,8 +1147,14 @@ function renderGame() {
 
   if (g.turn === myColor) {
     if (g.dice == null) {
-      if (phase !== 'rolling') phase = 'my-roll';
-      hintEl.textContent = 'روی تاس بزن!';
+      if (diceLockUntil > Date.now()) {
+        /* ✅ تاس در حال ثبت روی سرور است — نه قفل می‌مانیم نه رول دوباره */
+        phase = 'wait';
+        hintEl.textContent = 'در حال ثبت تاس...';
+      } else {
+        if (phase !== 'rolling') phase = 'my-roll';
+        hintEl.textContent = 'روی تاس بزن!';
+      }
     } else {
       if (phase !== 'my-move' && phase !== 'anim') {
         legal = computeLegal(myColor, g.dice);
@@ -1164,9 +1209,10 @@ function schedulePass(diceVal) {
   }, 1300);
 }
 
-/* ============ انداختن تاس ============ */
+/* ============ انداختن تاس (✅ فیکس کامل) ============ */
 diceEl.addEventListener('click', async () => {
   if (phase !== 'my-roll') return;
+  if (Date.now() < diceLockUntil) return;   // جلوگیری از رول دوباره در race
   phase = 'rolling';
   hap('light');
   clearTimeout(passTimer); passDiceVal = null;
@@ -1184,21 +1230,24 @@ diceEl.addEventListener('click', async () => {
   cubeEl.style.transition = '';
   diceEl.classList.remove('rolling');
   const val = 1 + Math.floor(Math.random() * 6);
-  setDice(val);
+  setDice(val, true);                        // force: حتی اگر عدد تکراری بود بچرخد
   sfx.land();
   try {
     await apiPatch(roomPath('game'), { dice: val });
+    diceLockUntil = Date.now() + 2600;       // تا تأیید سرور، رول دوم ممنوع
+    phase = 'wait';                          // ✅ فاز دیگر برای همیشه rolling نمی‌ماند
     touch();
     pollNow();
   } catch (e) {
     phase = 'my-roll';
+    diceLockUntil = 0;
     diceEl.classList.remove('disabled');
     diceEl.classList.add('myRoll');
     hintEl.textContent = 'اتصال قطع شد — دوباره تلاش کن';
   }
 });
 
-/* ============ حرکت مهره ============ */
+/* ============ حرکت مهره (✅ فاز قبل از poll ریست می‌شود = پاسخ آنی) ============ */
 async function onTokenClick(color, i) {
   if (color !== myColor || phase !== 'my-move') return;
   const mv = legal.find(m => m.i === i);
@@ -1206,6 +1255,7 @@ async function onTokenClick(color, i) {
   phase = 'anim';
   hap('light');
   clearHighlight();
+  ensureTokens();
 
   const diceVal = room.game.dice;
   const from = state.tokens[color][i], to = mv.to;
@@ -1248,12 +1298,12 @@ async function onTokenClick(color, i) {
     const order = room.game.order;
     upd.turn = order[(order.indexOf(room.game.turn) + 1) % order.length];
   }
+  phase = 'wait';                            // ✅ قبل از poll — نتیجه بلافاصله رندر می‌شود
   try {
     await apiPatch(roomPath('game'), upd);
     touch();
     pollNow();
   } catch (e) { hintEl.textContent = 'خطا در ثبت حرکت!'; }
-  phase = 'wait';
 }
 
 function nextTurn() {
@@ -1265,7 +1315,7 @@ function nextTurn() {
   ]);
 }
 
-/* ============ AFK ============ */
+/* ============ AFK (بدون تغییر) ============ */
 function afkCheck() {
   if (!room || !roomCode) return;
   const last = room.lastAct || room.createdAt || Date.now();
@@ -1363,6 +1413,9 @@ againBtn.addEventListener('click', async () => {
     winSeen = false;
     winOverlay.classList.remove('show');
     stopConfetti();
+    lastRoomSig = '';
+    lastTokSig = '';
+    diceLockUntil = 0;
     pollNow();
   } catch (e) {}
 });
